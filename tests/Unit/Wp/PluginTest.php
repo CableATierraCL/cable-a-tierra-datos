@@ -57,6 +57,96 @@ final class PluginTest extends TestCase
         Plugin::boot();
     }
 
+    public function test_boot_registers_a_schedule_self_heal_on_init(): void
+    {
+        $registered = [];
+        Functions\when('add_action')->alias(static function (string $hook, $callback) use (&$registered): void {
+            $registered[$hook][] = $callback;
+        });
+
+        Plugin::boot();
+
+        $this->assertContains([Plugin::class, 'ensureSchedule'], $registered['init']);
+    }
+
+    /** @param list<array{hook: string, schedule: ?string}> $events In-memory stand-in for the cron table. */
+    private function fakeCronTable(array $events, bool $installing = false): void
+    {
+        $this->cron = ['events' => $events, 'scheduleCalls' => 0];
+        Functions\when('wp_installing')->justReturn($installing);
+        Functions\when('wp_get_schedule')->alias(function (string $hook) {
+            foreach ($this->cron['events'] as $e) {
+                if ($e['hook'] === $hook && $e['schedule'] !== null) {
+                    return $e['schedule'];
+                }
+            }
+
+            return false;
+        });
+        Functions\when('wp_clear_scheduled_hook')->alias(function (string $hook): int {
+            $this->cron['events'] = array_values(array_filter($this->cron['events'], static fn (array $e): bool => $e['hook'] !== $hook));
+
+            return 0;
+        });
+        Functions\when('wp_schedule_event')->alias(function (int $ts, string $schedule, string $hook): bool {
+            $this->cron['scheduleCalls']++;
+            $this->cron['events'][] = ['hook' => $hook, 'schedule' => $schedule];
+
+            return true;
+        });
+    }
+
+    /** @var array{events: list<array{hook: string, schedule: ?string}>, scheduleCalls: int} */
+    private array $cron = ['events' => [], 'scheduleCalls' => 0];
+
+    public function test_self_heal_schedules_the_recurring_event_when_it_is_missing(): void
+    {
+        $this->fakeCronTable([]);
+
+        Plugin::ensureSchedule();
+
+        $this->assertSame([['hook' => 'cat_datos_refresh', 'schedule' => 'cat_datos_15min']], $this->cron['events']);
+    }
+
+    public function test_self_heal_replaces_a_lone_single_swr_event_with_the_recurring_one(): void
+    {
+        $this->fakeCronTable([['hook' => 'cat_datos_refresh', 'schedule' => null]]);
+
+        Plugin::ensureSchedule();
+
+        $this->assertSame([['hook' => 'cat_datos_refresh', 'schedule' => 'cat_datos_15min']], $this->cron['events']);
+    }
+
+    public function test_self_heal_does_nothing_when_the_recurring_event_exists(): void
+    {
+        $this->fakeCronTable([['hook' => 'cat_datos_refresh', 'schedule' => 'cat_datos_15min']]);
+
+        Plugin::ensureSchedule();
+
+        $this->assertSame(0, $this->cron['scheduleCalls']);
+    }
+
+    public function test_self_heal_is_idempotent_across_repeated_init(): void
+    {
+        $this->fakeCronTable([]);
+
+        Plugin::ensureSchedule();
+        Plugin::ensureSchedule();
+        Plugin::ensureSchedule();
+
+        $this->assertSame(1, $this->cron['scheduleCalls']);
+        $this->assertCount(1, $this->cron['events']);
+    }
+
+    public function test_self_heal_is_skipped_while_wordpress_is_installing(): void
+    {
+        $this->fakeCronTable([], true);
+
+        Plugin::ensureSchedule();
+
+        $this->assertSame(0, $this->cron['scheduleCalls']);
+    }
+
     public function test_boot_prepares_the_stylesheet_on_wp_enqueue_scripts(): void
     {
         Actions\expectAdded('wp_enqueue_scripts')->once();

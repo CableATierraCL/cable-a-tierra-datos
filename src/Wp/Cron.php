@@ -8,8 +8,11 @@ use CableATierra\Datos\Data\Repository;
 
 /**
  * Recurring refresh schedule. One event every 15 minutes (the risk TTL): about 288 risk requests
- * a day plus 3 burned ones, matching the request budget. WP-Cron reschedules after each run, so
- * a run always starts after the previous transient expired and never skips a cycle.
+ * a day plus 3 burned ones, matching the request budget. WP-Cron reschedules on a fixed grid
+ * (previous scheduled time + interval) while a transient is written slightly later (cron lag plus
+ * fetch time), so a run can find the previous transient still alive. The repository therefore
+ * treats a pair as due once its last-good is at least ttl - 120 s old, instead of waiting for
+ * the transient to expire. Single-site only: the event is scheduled per site, not network-wide.
  */
 final class Cron
 {

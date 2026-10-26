@@ -97,6 +97,58 @@ final class BandCssTest extends TestCase
         $this->assertMatchesRegularExpression('/\.cat-band__regions\{[^}]*repeat\(3,minmax\(0,1fr\)\)/', $this->css);
     }
 
+    /** @return string Body of the `@media print` block (nested braces included), or '' when absent. */
+    private function printBlock(): string
+    {
+        $start = strpos($this->css, '@media print');
+        if ($start === false) {
+            return '';
+        }
+        $depth = 0;
+        $open = strpos($this->css, '{', $start);
+        for ($i = (int) $open, $len = strlen($this->css); $i < $len; $i++) {
+            $depth += $this->css[$i] === '{' ? 1 : ($this->css[$i] === '}' ? -1 : 0);
+            if ($depth === 0) {
+                return substr($this->css, (int) $open + 1, $i - (int) $open - 1);
+            }
+        }
+
+        return '';
+    }
+
+    public function test_print_turns_the_light_on_dark_palette_into_dark_text_on_white(): void
+    {
+        $print = $this->printBlock();
+
+        $this->assertNotSame('', $print, 'a @media print block is required');
+        $this->assertMatchesRegularExpression('/--cat-paper:#[0-9a-f]{3,6}\b/i', $print);
+        $this->assertMatchesRegularExpression('/--cat-label:#[0-9a-f]{3,6}\b/i', $print);
+        $this->assertMatchesRegularExpression('/--cat-note:#[0-9a-f]{3,6}\b/i', $print);
+        foreach (['paper', 'label', 'note'] as $token) {
+            preg_match('/--cat-' . $token . ':#([0-9a-f]{3})\b/i', $print, $m);
+            $hex = isset($m[1]) ? '#' . $m[1][0] . $m[1][0] . $m[1][1] . $m[1][1] . $m[1][2] . $m[1][2] : '#ffffff';
+            $this->assertGreaterThanOrEqual(7.0, self::contrast($hex, '#ffffff'), "print --cat-$token on white");
+        }
+    }
+
+    public function test_print_keeps_borders_visible_and_forces_bar_colours_to_print(): void
+    {
+        $print = $this->printBlock();
+
+        $this->assertMatchesRegularExpression('/\.cat-region\{[^}]*border-top-color:#[0-9a-f]{3,6}/i', $print);
+        $this->assertMatchesRegularExpression('/\.cat-bar__seg,\.cat-legend__key\{(?:[^}]*;)?print-color-adjust:exact/', $print);
+        $this->assertMatchesRegularExpression('/\.cat-bar__seg,\.cat-legend__key\{[^}]*-webkit-print-color-adjust:exact/', $print);
+        $this->assertMatchesRegularExpression('/\.cat-band__note a,\.cat-band__foot a\{[^}]*color:#[0-9a-f]{3,6}/i', $print);
+    }
+
+    public function test_the_legend_uses_two_columns_between_the_stacking_and_wide_desktop_widths(): void
+    {
+        $this->assertMatchesRegularExpression(
+            '/@media \(min-width:961px\) and \(max-width:1180px\)\{[^@]*\.cat-legend\{[^}]*repeat\(2,auto\)/',
+            $this->css,
+        );
+    }
+
     public function test_the_stylesheet_is_static_so_reduced_motion_needs_no_special_case(): void
     {
         $this->assertDoesNotMatchRegularExpression('/\b(transition|animation|@keyframes|scroll-behavior)\b/', $this->css);

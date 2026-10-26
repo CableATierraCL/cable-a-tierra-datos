@@ -52,7 +52,9 @@ Only `http(s)` and relative URLs are accepted; anything else is dropped.
 | Steady state | about 288 risk + 3 burned requests per day, all from WP-Cron |
 | Page requests | serve cached or last-good data; a blocking 3 s fetch happens only with no last-good at all (or one older than its TTL + 6 h), at most once per PHP request |
 
-Cron cadence is 15 minutes because that equals the risk TTL: each run finds the transient expired and refreshes it. WP-Cron fires on traffic, so a system cron hitting `wp-cron.php` makes it punctual on a quiet site.
+Cron cadence is 15 minutes because that equals the risk TTL. WP-Cron reschedules on a fixed grid while the transient is written a little later, so a run can find the previous transient still alive; the cron path therefore refreshes a pair once its last-good is at least TTL minus 2 minutes old (24 h minus 2 minutes for burned area, so burned is not refetched on every run). Page requests are unaffected. WP-Cron fires on traffic, so a system cron hitting `wp-cron.php` makes it punctual on a quiet site.
+
+The recurring event is also re-created on `init` if it is missing (failed activation, wiped cron table). **Single-site only:** the schedule and stored data are per site; multisite network activation is not supported.
 
 ## Data sources and licenses
 
@@ -95,17 +97,25 @@ PHP_INI="C:\path\to\php\conf"   # optional, exported as PHPRC
 
 The plugin never edits the theme. These steps are for the theme session; do them in the theme repository.
 
-1. In `patterns/home-data.php`, replace the band body with:
+1. In `patterns/home-data.php`, replace the band body. Primary option, no PHP needed: a Shortcode block inside the pattern markup.
 
-   ```php
-   <?php if ( shortcode_exists( 'cat_datos_home_band' ) ) {
-       echo do_shortcode( '[cat_datos_home_band]' );
-   } else { /* existing fallback markup */ } ?>
+   ```html
+   <!-- wp:shortcode -->[cat_datos_home_band]<!-- /wp:shortcode -->
    ```
 
-   The block equivalent is a Shortcode block containing `[cat_datos_home_band]`.
+   If the plugin is deactivated, WordPress prints the raw text `[cat_datos_home_band]`. For a graceful fallback, prefer the PHP variant in `patterns/home-data.php` (patterns are PHP files), which degrades to the existing markup:
+
+   ```php
+   <?php if ( shortcode_exists( 'cat_datos_home_band' ) ) : ?>
+   <?php echo do_shortcode( '[cat_datos_home_band]' ); ?>
+   <?php else : ?>
+   <!-- existing fallback markup -->
+   <?php endif; ?>
+   ```
+
+   Caveat: if the band is inserted as raw block markup into post or template content (for example by pasting the rendered HTML), the output is baked in and never refreshes. Always insert the shortcode, never its HTML.
 2. Do not wrap it in `.cat-data__inner`. The plugin outputs the whole `<section class="cat-data cat-band" id="datos">`, and that theme grid would break the layout.
-3. Delete the dead `.cat-map*` and `.cat-stat*` CSS. Keep `.cat-data`, `.cat-kicker`, `.cat-data__title`, the buttons and the tokens: the band reuses them.
+3. Delete the dead `.cat-map*` and `.cat-stat*` CSS, but first confirm the selector names in the theme (`rg "cat-map|cat-stat"`), because only those exact names are dead. Keep `.cat-data`, `.cat-kicker`, `.cat-data__title`, the buttons and the tokens: the band reuses them.
 4. Keep the `/#datos` anchor working (the plugin sets `id="datos"` on the first band of a page).
 5. Brand case: the kicker reads "NoFires" in the plugin; fix any lowercase "nofires" left in the theme.
 

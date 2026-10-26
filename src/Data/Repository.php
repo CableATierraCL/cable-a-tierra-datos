@@ -34,6 +34,8 @@ final class Repository
     private const API_BACKOFF_KEY = 'cat_datos_v1_backoff_api';
     /** A last-good older than ttl + this many seconds means cron is evidently not running. */
     private const CRON_GRACE = 21600;
+    /** Cron refreshes a pair this many seconds before its transient would expire (covers cron lag). */
+    private const CRON_EARLY = 120;
     private const INLINE_TIMEOUT = 3.0;
     private const CRON_TIMEOUT = 5.0;
 
@@ -132,16 +134,28 @@ final class Repository
         }
     }
 
-    /** Cron path: fresh transient -> API (5 s) -> last-good -> none. */
+    /**
+     * Cron path: API (5 s) -> last-good -> none, but only for a pair that is due. A pair is due
+     * when it has no last-good or its last-good is at least ttl - CRON_EARLY seconds old, so a
+     * transient written a few seconds after the previous grid tick cannot make the next tick skip.
+     * Otherwise the still-fresh transient is served as is.
+     */
     public function refresh(string $region, Dataset $dataset): DatasetResult
     {
         try {
             $enum = Region::tryFrom($region);
 
-            return $enum === null ? DatasetResult::none() : $this->load($enum, $dataset, false);
+            return $enum === null ? DatasetResult::none() : $this->load($enum, $dataset, false, $this->cronDue($enum, $dataset));
         } catch (\Throwable) {
             return DatasetResult::none();
         }
+    }
+
+    private function cronDue(Region $region, Dataset $dataset): bool
+    {
+        $lastGood = $this->stored($this->cache->getOption($this->key('lastgood', $dataset, $region)), $dataset);
+
+        return $lastGood === null || $this->clock->now() - $lastGood['fetchedAt'] >= $dataset->ttl() - self::CRON_EARLY;
     }
 
     private function inlineAllowed(Region $region, Dataset $dataset): bool
@@ -151,11 +165,11 @@ final class Repository
             && $this->cache->get($this->key('backoff', $dataset, $region)) === null;
     }
 
-    private function load(Region $enum, Dataset $dataset, bool $inline): DatasetResult
+    private function load(Region $enum, Dataset $dataset, bool $inline, bool $due = false): DatasetResult
     {
         try {
             $fresh = $this->stored($this->cache->get($this->key('', $dataset, $enum)), $dataset);
-            if ($fresh !== null) {
+            if ($fresh !== null && !$due) {
                 return $this->result(Source::Cache, $fresh);
             }
 
