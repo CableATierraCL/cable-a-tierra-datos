@@ -62,9 +62,20 @@ final class DetailAssetsTest extends TestCase
     {
         Functions\when('is_singular')->justReturn(true);
         Functions\when('get_queried_object_id')->justReturn(1);
-        Functions\when('get_post_field')->justReturn('[cat_datos_home_band] and [cat_datos_metodologia]');
+        Functions\when('get_post_field')->justReturn('[cat_datos_home_band] and plain text');
         Functions\expect('wp_register_style')->once();
         Functions\expect('wp_enqueue_style')->never();
+
+        Assets::detail()->onEnqueueScripts();
+    }
+
+    public function test_a_page_with_only_the_methodology_shortcode_also_gets_the_stylesheet_in_the_head(): void
+    {
+        Functions\when('is_singular')->justReturn(true);
+        Functions\when('get_queried_object_id')->justReturn(1);
+        Functions\when('get_post_field')->justReturn('Intro [cat_datos_metodologia]');
+        Functions\expect('wp_register_style')->once();
+        Functions\expect('wp_enqueue_style')->once()->with('cat-datos-detail');
 
         Assets::detail()->onEnqueueScripts();
     }
