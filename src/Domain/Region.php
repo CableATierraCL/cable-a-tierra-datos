@@ -12,4 +12,14 @@ enum Region: string
     case Nuble = 'nuble';
     case Biobio = 'biobio';
     case Araucania = 'araucania';
+
+    /** Human-readable name for display. */
+    public function label(): string
+    {
+        return match ($this) {
+            self::Nuble => 'Ñuble',
+            self::Biobio => 'Biobío',
+            self::Araucania => 'La Araucanía',
+        };
+    }
 }
