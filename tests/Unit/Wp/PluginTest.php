@@ -41,7 +41,14 @@ final class PluginTest extends TestCase
 
     public function test_refresh_all_covers_three_regions_and_both_datasets_in_display_order(): void
     {
-        $http = new FakeHttpClient();
+        $http = (new FakeHttpClient())->queue(
+            new HttpResponse(200, '{"success":false}'),
+            new HttpResponse(200, '{"success":false}'),
+            new HttpResponse(200, '{"success":false}'),
+            new HttpResponse(200, '{"success":false}'),
+            new HttpResponse(200, '{"success":false}'),
+            new HttpResponse(200, '{"success":false}'),
+        );
         $clock = new FakeClock();
         $repo = new Repository($http, $clock, new FakeCache($clock), new FakeScheduler());
 
@@ -55,7 +62,7 @@ final class PluginTest extends TestCase
 
     public function test_refresh_all_only_fetches_what_is_due(): void
     {
-        $http = (new FakeHttpClient())->queue(...array_fill(0, 6, new HttpResponse(502)));
+        $http = (new FakeHttpClient())->queue(...array_fill(0, 6, new HttpResponse(200, '{"success":false}')));
         $clock = new FakeClock();
         $repo = new Repository($http, $clock, new FakeCache($clock), new FakeScheduler());
         Plugin::refreshAll($repo);

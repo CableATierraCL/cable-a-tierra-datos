@@ -7,6 +7,11 @@ namespace CableATierra\Datos\Wp;
 use CableATierra\Datos\Port\Clock;
 use CableATierra\Datos\Port\Scheduler;
 
+/**
+ * Queues a single WP-Cron event. Best effort: WP-Cron only fires on traffic (or a system cron
+ * hitting wp-cron.php), so a refresh may run late; the repository keeps serving last-good until
+ * it does and falls back to one inline fetch only when the data is far past its TTL.
+ */
 final class WpScheduler implements Scheduler
 {
     public function __construct(private readonly Clock $clock)

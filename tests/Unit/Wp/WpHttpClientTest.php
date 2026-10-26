@@ -35,14 +35,14 @@ final class WpHttpClientTest extends TestCase
     public function test_sends_a_bounded_get_with_own_user_agent_and_safe_url_checks(): void
     {
         Functions\expect('wp_remote_get')->once()->with(self::URL, \Mockery::on(static function (array $args): bool {
-            return $args['timeout'] === 5
+            return $args['timeout'] === 3.0
                 && $args['redirection'] === 2
                 && $args['reject_unsafe_urls'] === true
                 && $args['limit_response_size'] === 2_000_000
                 && str_starts_with($args['user-agent'], 'CableATierraDatos/' . CAT_DATOS_VERSION . ' (+https://cableatierrachile.com)');
         }))->andReturn(['response' => ['code' => 200], 'body' => '{"ok":1}']);
 
-        $response = (new WpHttpClient())->get(self::URL);
+        $response = (new WpHttpClient())->get(self::URL, 3.0);
 
         $this->assertSame(200, $response->status);
         $this->assertSame('{"ok":1}', $response->body);
@@ -53,7 +53,7 @@ final class WpHttpClientTest extends TestCase
     {
         Functions\when('wp_remote_get')->justReturn(new StubWpError());
 
-        $response = (new WpHttpClient())->get(self::URL);
+        $response = (new WpHttpClient())->get(self::URL, 5.0);
 
         $this->assertNull($response->status);
         $this->assertNull($response->body);
@@ -64,7 +64,7 @@ final class WpHttpClientTest extends TestCase
     {
         Functions\when('wp_remote_get')->justReturn(['response' => ['code' => ''], 'body' => ['x']]);
 
-        $response = (new WpHttpClient())->get(self::URL);
+        $response = (new WpHttpClient())->get(self::URL, 5.0);
 
         $this->assertNull($response->status);
         $this->assertNull($response->body);
@@ -74,7 +74,7 @@ final class WpHttpClientTest extends TestCase
     {
         Functions\when('wp_remote_get')->justReturn(['response' => ['code' => 502], 'body' => '<html>']);
 
-        $this->assertSame(502, (new WpHttpClient())->get(self::URL)->status);
+        $this->assertSame(502, (new WpHttpClient())->get(self::URL, 5.0)->status);
     }
 
     public function test_throwables_are_turned_into_failures(): void
@@ -83,7 +83,7 @@ final class WpHttpClientTest extends TestCase
             throw new \RuntimeException('boom');
         });
 
-        $response = (new WpHttpClient())->get(self::URL);
+        $response = (new WpHttpClient())->get(self::URL, 5.0);
 
         $this->assertNull($response->status);
         $this->assertSame('boom', $response->error);
@@ -93,7 +93,7 @@ final class WpHttpClientTest extends TestCase
     {
         Functions\expect('wp_remote_get')->never();
 
-        $response = (new WpHttpClient())->get('http://169.254.169.254/latest/meta-data');
+        $response = (new WpHttpClient())->get('http://169.254.169.254/latest/meta-data', 5.0);
 
         $this->assertNull($response->status);
         $this->assertNotNull($response->error);

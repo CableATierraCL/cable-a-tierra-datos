@@ -85,7 +85,11 @@ final class RepositoryRefreshTest extends RepositoryTestCase
         $this->assertSame($optionsBefore, $this->cache->options);
         $this->assertNull($this->cache->get(self::dataKey(Dataset::Risk, 'biobio')));
         $this->assertSame(
-            ['transient:cat_datos_v1_lock_risk_biobio:30', 'transient:cat_datos_v1_backoff_risk_biobio:300'],
+            [
+                'transient:cat_datos_v1_lock_risk_biobio:30',
+                'transient:cat_datos_v1_backoff_api:300',
+                'transient:cat_datos_v1_backoff_risk_biobio:300',
+            ],
             array_slice($this->cache->writes, $writesBefore),
         );
     }
@@ -145,7 +149,7 @@ final class RepositoryRefreshTest extends RepositoryTestCase
 
     public function test_regions_are_isolated(): void
     {
-        $this->http->queue(self::ok(Dataset::Risk, 'araucania'), new HttpResponse(502, '<html>'), self::ok(Dataset::Risk, 'nuble'));
+        $this->http->queue(self::ok(Dataset::Risk, 'araucania'), new HttpResponse(200, '<html>'), self::ok(Dataset::Risk, 'nuble'));
         $this->repo->refresh('araucania', Dataset::Risk);
         $araucania = $this->cache->transients;
 

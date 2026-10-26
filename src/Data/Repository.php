@@ -28,8 +28,15 @@ final class Repository
     private const SCHEMA = 1;
     private const LOCK_TTL = 30;
     private const BACKOFF_TTL = 300;
-    /** A last-good older than this is considered a sign that cron is not running. */
-    private const SWR_MAX_AGE = 3600;
+    /** Outage guard shared by every pair: any transport/HTTP-level failure pauses all requests. */
+    private const API_BACKOFF_KEY = 'cat_datos_v1_backoff_api';
+    /** A last-good older than ttl + this many seconds means cron is evidently not running. */
+    private const CRON_GRACE = 21600;
+    private const INLINE_TIMEOUT = 3.0;
+    private const CRON_TIMEOUT = 5.0;
+
+    /** Inline (page path) fetches already made by this instance; the budget is one per request. */
+    private int $inlineFetches = 0;
 
     public function __construct(
         private readonly HttpClient $http,
@@ -42,8 +49,10 @@ final class Repository
     }
 
     /**
-     * Page path (stale-while-revalidate): serve fresh data, else a recent last-good while a
-     * background refresh is queued; fetch inline only when there is no usable last-good.
+     * Page path (stale-while-revalidate): serve fresh data, else the last-good of any age while a
+     * background refresh is queued. A blocking fetch (3 s, at most one per request, never during
+     * a backoff) happens only with no last-good at all or one more than ttl + 6 h old.
+     * Create one Repository per request: the inline budget lives on the instance.
      */
     public function read(string $region, Dataset $dataset): DatasetResult
     {
@@ -59,29 +68,52 @@ final class Repository
             }
 
             $lastGood = $this->stored($this->cache->getOption($this->key('lastgood', $dataset, $enum)), $dataset);
-            if ($lastGood !== null && $this->clock->now() - $lastGood['fetchedAt'] <= self::SWR_MAX_AGE) {
-                if ($this->cache->get($this->key('backoff', $dataset, $enum)) === null) {
-                    $this->scheduler->scheduleOnce(self::REFRESH_HOOK);
-                }
-
-                return $this->result(Source::LastGood, $lastGood);
+            // A negative age (clock change) is stale-but-servable: it goes through cron, not inline.
+            $tooOld = $lastGood !== null
+                && $this->clock->now() - $lastGood['fetchedAt'] > $dataset->ttl() + self::CRON_GRACE;
+            if (($lastGood === null || $tooOld) && $this->inlineAllowed($enum, $dataset)) {
+                return $this->load($enum, $dataset, true);
             }
 
-            return $this->refresh($region, $dataset);
+            if (
+                $this->cache->get($this->key('backoff', $dataset, $enum)) === null
+                && $this->cache->get(self::API_BACKOFF_KEY) === null
+            ) {
+                try {
+                    $this->scheduler->scheduleOnce(self::REFRESH_HOOK);
+                } catch (\Throwable) {
+                    // Best effort: a scheduling failure must not drop a servable result.
+                }
+            }
+
+            return $lastGood === null ? DatasetResult::none() : $this->result(Source::LastGood, $lastGood);
         } catch (\Throwable) {
             return DatasetResult::none();
         }
     }
 
-    /** Cron path: fresh transient -> API -> last-good -> none. */
+    /** Cron path: fresh transient -> API (5 s) -> last-good -> none. */
     public function refresh(string $region, Dataset $dataset): DatasetResult
     {
         try {
             $enum = Region::tryFrom($region);
-            if ($enum === null) {
-                return DatasetResult::none();
-            }
 
+            return $enum === null ? DatasetResult::none() : $this->load($enum, $dataset, false);
+        } catch (\Throwable) {
+            return DatasetResult::none();
+        }
+    }
+
+    private function inlineAllowed(Region $region, Dataset $dataset): bool
+    {
+        return $this->inlineFetches === 0
+            && $this->cache->get(self::API_BACKOFF_KEY) === null
+            && $this->cache->get($this->key('backoff', $dataset, $region)) === null;
+    }
+
+    private function load(Region $enum, Dataset $dataset, bool $inline): DatasetResult
+    {
+        try {
             $fresh = $this->stored($this->cache->get($this->key('', $dataset, $enum)), $dataset);
             if ($fresh !== null) {
                 return $this->result(Source::Cache, $fresh);
@@ -89,10 +121,18 @@ final class Repository
 
             $lock = $this->key('lock', $dataset, $enum);
             $backoff = $this->key('backoff', $dataset, $enum);
-            if ($this->cache->get($lock) === null && $this->cache->get($backoff) === null) {
+            if (
+                $this->cache->get($lock) === null
+                && $this->cache->get($backoff) === null
+                && $this->cache->get(self::API_BACKOFF_KEY) === null
+                && (!$inline || $this->inlineFetches === 0)
+            ) {
                 $this->cache->set($lock, 1, self::LOCK_TTL);
                 try {
-                    $payload = $this->fetch($enum, $dataset);
+                    if ($inline) {
+                        $this->inlineFetches++;
+                    }
+                    $payload = $this->fetch($enum, $dataset, $inline ? self::INLINE_TIMEOUT : self::CRON_TIMEOUT);
                     if ($payload !== null) {
                         $entry = ['v' => self::SCHEMA, 'fetchedAt' => $this->clock->now(), 'payload' => $payload];
                         $this->cache->setOption($this->key('lastgood', $dataset, $enum), $entry);
@@ -124,7 +164,7 @@ final class Repository
     }
 
     /** @return array<mixed>|null Normalized payload, or null on any failure. */
-    private function fetch(Region $region, Dataset $dataset): ?array
+    private function fetch(Region $region, Dataset $dataset, float $timeout): ?array
     {
         $url = self::BASE_URL . match ($dataset) {
             Dataset::Risk => '/api/territory/risk-score/comunas/' . $region->value,
@@ -132,8 +172,15 @@ final class Repository
         };
 
         try {
-            $response = $this->http->get($url);
-            if ($response->status !== 200 || $response->body === null) {
+            try {
+                $response = $this->http->get($url, $timeout);
+            } catch (\Throwable) {
+                $response = null;
+            }
+            if ($response === null || $response->status !== 200 || $response->body === null) {
+                // Transport/HTTP-level failure: the API itself is unhealthy, pause every pair.
+                $this->cache->set(self::API_BACKOFF_KEY, 1, self::BACKOFF_TTL);
+
                 return null;
             }
 

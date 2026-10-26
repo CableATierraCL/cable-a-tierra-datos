@@ -13,7 +13,7 @@ use CableATierra\Datos\Port\HttpResponse;
  */
 final class WpHttpClient implements HttpClient
 {
-    public function get(string $url): HttpResponse
+    public function get(string $url, float $timeout): HttpResponse
     {
         if (!str_starts_with($url, 'https://')) {
             return new HttpResponse(null, null, 'refused: not an https URL');
@@ -21,7 +21,7 @@ final class WpHttpClient implements HttpClient
 
         try {
             $result = wp_remote_get($url, [
-                'timeout' => 5,
+                'timeout' => $timeout,
                 'redirection' => 2,
                 'reject_unsafe_urls' => true,
                 'limit_response_size' => 2_000_000,

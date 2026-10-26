@@ -13,6 +13,9 @@ final class FakeHttpClient implements HttpClient
     /** @var list<string> */
     public array $calls = [];
 
+    /** @var list<float> Timeout requested for each call, aligned with $calls. */
+    public array $timeouts = [];
+
     /** @var list<HttpResponse|\Throwable> */
     private array $queue = [];
 
@@ -23,9 +26,10 @@ final class FakeHttpClient implements HttpClient
         return $this;
     }
 
-    public function get(string $url): HttpResponse
+    public function get(string $url, float $timeout): HttpResponse
     {
         $this->calls[] = $url;
+        $this->timeouts[] = $timeout;
         $next = array_shift($this->queue) ?? new HttpResponse(null, null, 'nothing queued');
         if ($next instanceof \Throwable) {
             throw $next;
