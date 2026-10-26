@@ -20,6 +20,24 @@ enum AlertLevel: string
         return self::tryFrom($value) ?? self::Unknown;
     }
 
+    /** Lowercase css-friendly name. */
+    public function slug(): string
+    {
+        return strtolower($this->value);
+    }
+
+    /** Spanish display name shared by every view. */
+    public function label(): string
+    {
+        return match ($this) {
+            self::Critico => 'Crítico',
+            self::Alto => 'Alto',
+            self::Preventivo => 'Preventivo',
+            self::Normal => 'Normal',
+            self::Unknown => 'Sin clasificar',
+        };
+    }
+
     /** Lower is more severe; Unknown sorts last. */
     public function severity(): int
     {

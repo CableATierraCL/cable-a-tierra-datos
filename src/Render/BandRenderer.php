@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CableATierra\Datos\Render;
 
+use CableATierra\Datos\Domain\AlertLevel;
+use CableATierra\Datos\Domain\Attribution;
 use CableATierra\Datos\Domain\Freshness;
 use CableATierra\Datos\Domain\Region;
 use CableATierra\Datos\Format\LocalTime;
@@ -19,24 +21,15 @@ use CableATierra\Datos\Summary\RegionSummary;
  */
 final class BandRenderer
 {
-    /** Official MapBiomas wording (without access date). Used only when the API omits `citation`. */
-    public const DEFAULT_CITATION = 'MapBiomas – Colección 1 de la Serie Anual de Mapas de Área Quemada de Chile (Fuego, 2013–2025). https://storage.googleapis.com/mapbiomas-public/initiatives/chile/fire/collection1/';
+    /** Alias of the shared constant; used only when the API omits `citation`. */
+    public const DEFAULT_CITATION = Attribution::MAPBIOMAS_CITATION;
 
-    private const NOFIRES_URL = 'https://nofires-latam.vercel.app';
     private const FIRMS_LABEL = 'Focos detectados, últimas 48 h';
-
-    /** Level key => [css slug, display name]. Fixed order, most severe first. */
-    private const LEVELS = [
-        'CRITICO' => ['critico', 'Crítico'],
-        'ALTO' => ['alto', 'Alto'],
-        'PREVENTIVO' => ['preventivo', 'Preventivo'],
-        'NORMAL' => ['normal', 'Normal'],
-    ];
 
     /** Renders started in this request; drives unique ids and the single `#datos` anchor. */
     private static int $renders = 0;
 
-    private string $templates;
+    private Templates $templates;
 
     /** @internal Test hook: restarts the per-request render count. */
     public static function resetInstances(): void
@@ -44,10 +37,9 @@ final class BandRenderer
         self::$renders = 0;
     }
 
-    // Templates are fixed at construction on purpose: there is no setter, so no runtime path can redirect includes.
     public function __construct(string $templates = '')
     {
-        $this->templates = $templates !== '' ? $templates : dirname(__DIR__, 2) . '/templates';
+        $this->templates = new Templates($templates);
     }
 
     /** @param list<RegionSummary> $summaries In any order; missing regions count as unavailable. */
@@ -55,7 +47,7 @@ final class BandRenderer
     {
         $instance = ++self::$renders;
         try {
-            return $this->template('band', $this->view($summaries, $now, $instance));
+            return $this->templates->render('band', $this->view($summaries, $now, $instance));
         } catch (\Throwable) {
             return $this->fallback($instance);
         }
@@ -66,7 +58,7 @@ final class BandRenderer
     {
         $instance = ++self::$renders;
         try {
-            return $this->template('band', $this->emptyView($instance));
+            return $this->templates->render('band', $this->emptyView($instance));
         } catch (\Throwable) {
             return $this->fallback($instance);
         }
@@ -134,10 +126,11 @@ final class BandRenderer
         $stale = $s->state === Freshness::Stale || $s->state === Freshness::VeryStale;
         $levels = [];
         $classified = 0;
-        foreach (self::LEVELS as $key => [$slug, $name]) {
-            $n = $s->levelCounts[$key] ?? 0;
+        foreach (AlertLevel::known() as $level) {
+            $n = $s->levelCounts[$level->value] ?? 0;
             $classified += $n;
-            $levels[] = ['slug' => $slug, 'name' => $name, 'n' => $n, 'sr' => sprintf('%s: %d %s', $name, $n, $n === 1 ? 'comuna' : 'comunas')];
+            $name = $level->label();
+            $levels[] = ['slug' => $level->slug(), 'name' => $name, 'n' => $n, 'sr' => sprintf('%s: %d %s', $name, $n, $n === 1 ? 'comuna' : 'comunas')];
         }
         $b = $s->burned;
         $burned = null;
@@ -198,7 +191,7 @@ final class BandRenderer
 
         return [
             'updated' => 'Actualizado el ' . SpanishDate::long(LocalTime::at($oldest)) . ' (hora de Chile).',
-            'sourceUrl' => self::NOFIRES_URL,
+            'sourceUrl' => Attribution::NOFIRES_URL,
             'citations' => $citations ?? [],
         ];
     }
@@ -219,27 +212,4 @@ final class BandRenderer
         return preg_match('#^(?:https?://\S|/(?!/))#i', $clean) === 1 ? $clean : '';
     }
 
-    /** @param array<string, mixed> $view */
-    private function template(string $name, array $view): string
-    {
-        $file = $this->templates . '/' . $name . '.php';
-        if (!is_file($file)) {
-            throw new \RuntimeException('Missing template ' . $name);
-        }
-        $partial = fn (string $n, array $v): string => $this->template($n, $v);
-        $level = ob_get_level();
-        ob_start();
-        try {
-            (static function (string $file, array $view, callable $partial): void {
-                require $file;
-            })($file, $view, $partial);
-
-            return trim((string) ob_get_clean());
-        } catch (\Throwable $e) {
-            while (ob_get_level() > $level) {
-                ob_end_clean();
-            }
-            throw $e;
-        }
-    }
 }
