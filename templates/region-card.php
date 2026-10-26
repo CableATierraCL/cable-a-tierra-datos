@@ -7,7 +7,9 @@
 
 defined('ABSPATH') || exit;
 
-$slug = (string) $view['slug'];
+// Ids carry the render instance so two bands in one request never share an id.
+$regionId = 'cat-region-' . (string) $view['slug'] . '-' . (int) $view['uid'];
+$distId = 'cat-dist-' . (string) $view['slug'] . '-' . (int) $view['uid'];
 
 /** One labelled figure. A null value is "no data", never zero. */
 $stat = static function (string $label, ?string $value, string $class): void {
@@ -21,9 +23,9 @@ $stat = static function (string $label, ?string $value, string $class): void {
 <?php
 };
 ?>
-<article class="cat-region" aria-labelledby="<?php echo esc_attr('cat-region-' . $slug); ?>">
+<article class="cat-region" aria-labelledby="<?php echo esc_attr($regionId); ?>">
 <header class="cat-region__head">
-<h3 class="cat-region__name" id="<?php echo esc_attr('cat-region-' . $slug); ?>"><?php echo esc_html((string) $view['name']); ?></h3>
+<h3 class="cat-region__name" id="<?php echo esc_attr($regionId); ?>"><?php echo esc_html((string) $view['name']); ?></h3>
 <?php if ($view['unavailable']) : ?>
 </header>
 <p class="cat-region__empty">Datos no disponibles por el momento</p>
@@ -35,15 +37,15 @@ $stat = static function (string $label, ?string $value, string $class): void {
 </header>
 <?php $stat((string) $view['firmsLabel'], $view['firms'], 'cat-region__stats'); ?>
 <div class="cat-region__dist">
-<p class="cat-region__dist-title" id="<?php echo esc_attr('cat-dist-' . $slug); ?>">Comunas por nivel de riesgo <span>(<?php echo esc_html((string) $view['classified']); ?>)</span></p>
+<p class="cat-region__dist-title" id="<?php echo esc_attr($distId); ?>">Comunas por nivel de riesgo <span>(<?php echo esc_html((string) $view['classified']); ?>)</span></p>
 <div class="cat-bar" aria-hidden="true">
 <?php foreach ($view['levels'] as $level) : ?>
 <span class="<?php echo esc_attr('cat-bar__seg cat-level--' . $level['slug']); ?>" style="<?php echo esc_attr('--n:' . (int) $level['n']); ?>"></span>
 <?php endforeach; ?>
 </div>
-<ul class="cat-legend" aria-labelledby="<?php echo esc_attr('cat-dist-' . $slug); ?>">
+<ul class="cat-legend" aria-labelledby="<?php echo esc_attr($distId); ?>">
 <?php foreach ($view['levels'] as $level) : ?>
-<li class="cat-legend__item"><span class="<?php echo esc_attr('cat-legend__key cat-level--' . $level['slug']); ?>" aria-hidden="true"></span><?php echo esc_html($level['name']); ?> <span class="cat-legend__n"><?php echo esc_html((string) $level['n']); ?></span><span class="cat-band__sr"> comunas</span></li>
+<li class="cat-legend__item"><span class="<?php echo esc_attr('cat-legend__key cat-level--' . $level['slug']); ?>" aria-hidden="true"></span><span aria-hidden="true"><?php echo esc_html($level['name']); ?> <span class="cat-legend__n"><?php echo esc_html((string) $level['n']); ?></span></span><span class="cat-band__sr"><?php echo esc_html((string) $level['sr']); ?></span></li>
 <?php endforeach; ?>
 </ul>
 </div>

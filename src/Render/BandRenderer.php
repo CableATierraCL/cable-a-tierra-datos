@@ -19,8 +19,8 @@ use CableATierra\Datos\Summary\RegionSummary;
  */
 final class BandRenderer
 {
-    /** Used when the burned layer carries no citation. TODO(content): replace with MapBiomas' official wording. */
-    public const DEFAULT_CITATION = 'Proyecto MapBiomas Chile (chile.mapbiomas.org).';
+    /** Official MapBiomas wording (without access date). Used only when the API omits `citation`. */
+    public const DEFAULT_CITATION = 'MapBiomas – Colección 1 de la Serie Anual de Mapas de Área Quemada de Chile (Fuego, 2013–2025). https://storage.googleapis.com/mapbiomas-public/initiatives/chile/fire/collection1/';
 
     private const NOFIRES_URL = 'https://nofires-latam.vercel.app';
     private const FIRMS_LABEL = 'Focos detectados, últimas 48 h';
@@ -33,8 +33,18 @@ final class BandRenderer
         'NORMAL' => ['normal', 'Normal'],
     ];
 
+    /** Renders started in this request; drives unique ids and the single `#datos` anchor. */
+    private static int $renders = 0;
+
     private string $templates;
 
+    /** @internal Test hook: restarts the per-request render count. */
+    public static function resetInstances(): void
+    {
+        self::$renders = 0;
+    }
+
+    // Templates are fixed at construction on purpose: there is no setter, so no runtime path can redirect includes.
     public function __construct(string $templates = '')
     {
         $this->templates = $templates !== '' ? $templates : dirname(__DIR__, 2) . '/templates';
@@ -43,30 +53,38 @@ final class BandRenderer
     /** @param list<RegionSummary> $summaries In any order; missing regions count as unavailable. */
     public function render(array $summaries, int $now): string
     {
+        $instance = ++self::$renders;
         try {
-            return $this->template('band', $this->view($summaries, $now));
+            return $this->template('band', $this->view($summaries, $now, $instance));
         } catch (\Throwable) {
-            return $this->unavailable();
+            return $this->fallback($instance);
         }
     }
 
     /** The band with no data at all: heading, message and call to action. */
     public function unavailable(): string
     {
+        $instance = ++self::$renders;
         try {
-            return $this->template('band', $this->emptyView());
+            return $this->template('band', $this->emptyView($instance));
         } catch (\Throwable) {
-            return '<section class="cat-data cat-band" id="datos" aria-labelledby="cat-band-title"><div class="cat-band__inner">'
-                . '<h2 class="cat-data__title" id="cat-band-title">El territorio, medido.</h2>'
-                . '<p class="cat-band__empty">Datos no disponibles por el momento</p></div></section>';
+            return $this->fallback($instance);
         }
+    }
+
+    /** Literal markup for when even the template cannot be rendered. Same id rules as the template. */
+    private function fallback(int $instance): string
+    {
+        return '<section class="cat-data cat-band"' . ($instance === 1 ? ' id="datos"' : '') . ' aria-labelledby="cat-band-title-' . $instance . '"><div class="cat-band__inner">'
+            . '<h2 class="cat-data__title" id="cat-band-title-' . $instance . '">El territorio, medido.</h2>'
+            . '<p class="cat-band__empty">Datos no disponibles por el momento</p></div></section>';
     }
 
     /**
      * @param list<RegionSummary> $summaries
      * @return array<string, mixed>
      */
-    private function view(array $summaries, int $now): array
+    private function view(array $summaries, int $now, int $instance): array
     {
         $byRegion = [];
         foreach ($summaries as $summary) {
@@ -79,30 +97,34 @@ final class BandRenderer
         foreach (Region::cases() as $region) {
             $ordered[] = $byRegion[$region->value] ?? RegionSummary::unavailable($region->value, $region->label());
         }
-        $live = array_values(array_filter($ordered, static fn (RegionSummary $s): bool => $s->state !== Freshness::Unavailable));
+        // A region without a timestamp renders as an unavailable card, so it must not feed the footer either.
+        $live = array_values(array_filter($ordered, static fn (RegionSummary $s): bool => $s->state !== Freshness::Unavailable && $s->freshnessTs !== null));
         if ($live === []) {
-            return $this->emptyView();
+            return $this->emptyView($instance);
         }
+        $cards = array_map(fn (RegionSummary $s): array => $this->card($s, $instance), $ordered);
 
         return [
+            'uid' => $instance,
+            'anchor' => $instance === 1,
             'headline' => MacrozonaHeadline::compose($ordered, $now),
-            'cards' => array_map(fn (RegionSummary $s): array => $this->card($s), $ordered),
+            'cards' => $cards,
             'methodologyUrl' => $this->url('cat_datos_methodology_url', ''),
             'ctaUrl' => $this->url('cat_datos_explore_url', home_url('/datos/')),
-            'footer' => $this->footer($live),
+            'footer' => $this->footer($live, $this->shownBurnedCitations($ordered, $cards)),
         ];
     }
 
     /** @return array<string, mixed> */
-    private function emptyView(): array
+    private function emptyView(int $instance): array
     {
-        return ['headline' => null, 'cards' => [], 'methodologyUrl' => '', 'ctaUrl' => $this->url('cat_datos_explore_url', home_url('/datos/')), 'footer' => null];
+        return ['uid' => $instance, 'anchor' => $instance === 1, 'headline' => null, 'cards' => [], 'methodologyUrl' => '', 'ctaUrl' => $this->url('cat_datos_explore_url', home_url('/datos/')), 'footer' => null];
     }
 
     /** @return array<string, mixed> */
-    private function card(RegionSummary $s): array
+    private function card(RegionSummary $s, int $instance): array
     {
-        $card = ['slug' => $s->region, 'name' => $s->label, 'unavailable' => $s->state === Freshness::Unavailable];
+        $card = ['uid' => $instance, 'slug' => $s->region, 'name' => $s->label, 'unavailable' => $s->state === Freshness::Unavailable];
         if ($card['unavailable'] || $s->freshnessTs === null) {
             return ['unavailable' => true] + $card;
         }
@@ -114,7 +136,7 @@ final class BandRenderer
         foreach (self::LEVELS as $key => [$slug, $name]) {
             $n = $s->levelCounts[$key] ?? 0;
             $classified += $n;
-            $levels[] = ['slug' => $slug, 'name' => $name, 'n' => $n];
+            $levels[] = ['slug' => $slug, 'name' => $name, 'n' => $n, 'sr' => sprintf('%s: %d %s', $name, $n, $n === 1 ? 'comuna' : 'comunas')];
         }
         $b = $s->burned;
         $burned = null;
@@ -138,29 +160,62 @@ final class BandRenderer
     }
 
     /**
-     * @param non-empty-list<RegionSummary> $live
-     * @return array<string, mixed>
+     * Citations of the regions whose card actually shows a burned figure (empty when none does).
+     *
+     * @param list<RegionSummary> $ordered
+     * @param list<array<string, mixed>> $cards Same order as $ordered.
+     * @return list<string>|null null when no card shows a burned figure.
      */
-    private function footer(array $live): array
+    private function shownBurnedCitations(array $ordered, array $cards): ?array
     {
         $citations = [];
-        foreach ($live as $s) {
-            $citations[] = (string) $s->burned['citation'];
+        $shown = false;
+        foreach ($ordered as $i => $s) {
+            if (($cards[$i]['burned'] ?? null) === null) {
+                continue;
+            }
+            $shown = true;
+            $citations[] = trim((string) $s->burned['citation']);
+        }
+        if (!$shown) {
+            return null;
         }
         $citations = array_values(array_unique(array_filter($citations, static fn (string $c): bool => $c !== '')));
 
+        // The default is only for a layer that omits `citation`; the API's own text always wins.
+        return $citations === [] ? [self::DEFAULT_CITATION] : $citations;
+    }
+
+    /**
+     * @param non-empty-list<RegionSummary> $live Every entry has a non-null freshnessTs.
+     * @param list<string>|null $citations
+     * @return array<string, mixed>
+     */
+    private function footer(array $live, ?array $citations): array
+    {
+        $oldest = min(array_map(static fn (RegionSummary $s): int => $s->freshnessTs ?? PHP_INT_MAX, $live));
+
         return [
-            'updated' => 'Actualizado el ' . SpanishDate::long(LocalTime::at(min(array_map(static fn (RegionSummary $s): int => (int) $s->freshnessTs, $live)))) . ' (hora de Chile).',
+            'updated' => 'Actualizado el ' . SpanishDate::long(LocalTime::at($oldest)) . ' (hora de Chile).',
             'sourceUrl' => self::NOFIRES_URL,
-            'citations' => $citations === [] ? [self::DEFAULT_CITATION] : $citations,
+            'citations' => $citations ?? [],
         ];
     }
 
+    /**
+     * Filtered URL, or '' when it is not an http(s) URL or a site-relative path (templates then hide the link).
+     * esc_url_raw() with an http/https allow-list strips other schemes ("javascript:x" becomes "x") and keeps
+     * paths that start with "/", so the result is re-checked instead of trusted.
+     */
     private function url(string $filter, string $default): string
     {
         $value = apply_filters($filter, $default);
+        if (!is_string($value) || trim($value) === '') {
+            return '';
+        }
+        $clean = esc_url_raw(trim($value), ['http', 'https']);
 
-        return is_string($value) ? trim($value) : '';
+        return preg_match('#^(?:https?://\S|/(?!/))#i', $clean) === 1 ? $clean : '';
     }
 
     /** @param array<string, mixed> $view */

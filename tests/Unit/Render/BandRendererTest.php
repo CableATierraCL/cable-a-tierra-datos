@@ -32,7 +32,22 @@ final class BandRendererTest extends TestCase
     {
         parent::setUp();
         Monkey\setUp();
-        Functions\stubEscapeFunctions();
+        BandRenderer::resetInstances();
+        // These stubs behave like the real WordPress escapers (Brain Monkey's defaults are lenient), so the
+        // assertions below prove output safety instead of echoing input back.
+        Functions\when('esc_html')->alias(static fn (string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8', false));
+        Functions\when('esc_attr')->alias(static fn (string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8', false));
+        // Real esc_url() drops angle brackets, double quotes and whitespace, then HTML-encodes the rest.
+        Functions\when('esc_url')->alias(static fn (string $u): string => htmlspecialchars((string) preg_replace('/[<>"\s]/', '', $u), ENT_QUOTES, 'UTF-8', false));
+        // Real esc_url_raw() with a protocol allow-list strips a disallowed scheme ("javascript:x" -> "x").
+        Functions\when('esc_url_raw')->alias(static function (string $u, ?array $protocols = null): string {
+            $u = (string) preg_replace('/[<>"\s]/', '', $u);
+            if (preg_match('/^([a-z][a-z0-9+.\-]*):/i', $u, $m) === 1 && !in_array(strtolower($m[1]), $protocols ?? ['http', 'https'], true)) {
+                $u = substr($u, strlen($m[0]));
+            }
+
+            return $u;
+        });
         Functions\when('home_url')->alias(static fn (string $path = ''): string => 'https://site.test' . $path);
     }
 
@@ -123,11 +138,24 @@ final class BandRendererTest extends TestCase
         $card = $this->card($x, 0);
 
         self::assertSame('Focos detectados, últimas 48 h 1.254', $this->text($x, './/dl[1]', $card));
-        self::assertSame('Crítico 1 comunas', $this->text($x, './/ul[contains(@class,"cat-legend")]/li[1]', $card));
-        self::assertSame('Alto 1 comunas', $this->text($x, './/ul[contains(@class,"cat-legend")]/li[2]', $card));
-        self::assertSame('Preventivo 0 comunas', $this->text($x, './/ul[contains(@class,"cat-legend")]/li[3]', $card), 'zeros are shown');
-        self::assertSame('Normal 0 comunas', $this->text($x, './/ul[contains(@class,"cat-legend")]/li[4]', $card));
+        $sr = './/ul[contains(@class,"cat-legend")]/li[%d]/span[contains(@class,"cat-band__sr")]';
+        self::assertSame('Crítico: 1 comuna', $this->text($x, sprintf($sr, 1), $card), 'singular');
+        self::assertSame('Alto: 1 comuna', $this->text($x, sprintf($sr, 2), $card));
+        self::assertSame('Preventivo: 0 comunas', $this->text($x, sprintf($sr, 3), $card), 'zeros are shown');
+        self::assertSame('Normal: 0 comunas', $this->text($x, sprintf($sr, 4), $card));
+        self::assertSame('Crítico 1', $this->text($x, './/ul[contains(@class,"cat-legend")]/li[1]/span[@aria-hidden="true"][2]', $card), 'visible text is hidden from screen readers');
         self::assertSame('Superficie quemada, 2025 1.234' . self::NBSP . 'ha', $this->text($x, './/dl[2]', $card));
+    }
+
+    public function test_screen_reader_legend_pluralises_counts(): void
+    {
+        $rows = [];
+        for ($i = 1; $i <= 31; $i++) {
+            $rows[] = self::row('a' . $i, 'ALTO', 0, null, self::FRESH);
+        }
+        $x = $this->xpath($this->html([$this->region('nuble', $rows), $this->region('biobio'), $this->region('araucania')]));
+
+        self::assertSame('Alto: 31 comunas', $this->text($x, './/ul[contains(@class,"cat-legend")]/li[2]/span[contains(@class,"cat-band__sr")]', $this->card($x, 0)));
     }
 
     public function test_bar_is_decorative_with_one_segment_per_level_and_no_other_inline_style(): void
@@ -332,7 +360,6 @@ final class BandRendererTest extends TestCase
         return [
             'all fresh' => [static fn (self $t): array => $t->fresh()],
             'layer without citation' => [static fn (self $t): array => [$t->region('nuble', null, self::burned(['a' => self::ha(1.0)], 2025, null)), $t->region('biobio'), $t->region('araucania')]],
-            'burned missing everywhere' => [static fn (self $t): array => [$t->region('nuble', null, DatasetResult::none()), $t->region('biobio', null, DatasetResult::none()), $t->region('araucania', null, DatasetResult::none())]],
             'one unavailable' => [static fn (self $t): array => [$t->region('nuble', []), $t->region('biobio'), $t->region('araucania')]],
             'very stale' => [static fn (self $t): array => [$t->region('nuble', [self::row('1', 'ALTO', 1, null, self::HOURS_50)]), $t->region('biobio'), $t->region('araucania')]],
         ];
@@ -355,6 +382,57 @@ final class BandRendererTest extends TestCase
         $text = $this->text($this->xpath($this->html([$this->region('nuble', null, $burned), $this->region('biobio', null, $burned), $this->region('araucania', null, $burned)])), '//footer');
 
         self::assertStringContainsString(BandRenderer::DEFAULT_CITATION, $text);
+    }
+
+    public function test_default_citation_is_the_official_wording_without_access_date(): void
+    {
+        self::assertSame(
+            'MapBiomas – Colección 1 de la Serie Anual de Mapas de Área Quemada de Chile (Fuego, 2013–2025). https://storage.googleapis.com/mapbiomas-public/initiatives/chile/fire/collection1/',
+            BandRenderer::DEFAULT_CITATION,
+        );
+    }
+
+    public function test_no_citation_paragraph_when_burned_is_unavailable_everywhere(): void
+    {
+        $none = DatasetResult::none();
+        $html = $this->html([$this->region('nuble', null, $none), $this->region('biobio', null, $none), $this->region('araucania', null, $none)]);
+        $x = $this->xpath($html);
+
+        self::assertSame(0, $x->query('//*[contains(@class,"cat-band__cite")]')->length);
+        self::assertStringNotContainsString('MapBiomas', $x->document->textContent ?? '');
+        self::assertSame(1, $x->query('//footer')->length, 'the update time and sources remain');
+    }
+
+    public function test_citation_covers_only_regions_that_show_a_burned_figure(): void
+    {
+        $shown = self::burned(['a' => self::ha(10.0)], 2025, 'Cita visible');
+        $hidden = self::burned(['a' => self::ha(null)], 2025, 'Cita oculta');
+        $text = $this->xpath($this->html([$this->region('nuble', null, $shown), $this->region('biobio', null, $hidden), $this->region('araucania', null, DatasetResult::none())]))->document->textContent ?? '';
+
+        self::assertStringContainsString('Cita visible', $text);
+        self::assertStringNotContainsString('Cita oculta', $text);
+    }
+
+    public function test_footer_date_ignores_live_regions_without_a_timestamp_and_never_shows_1970(): void
+    {
+        $good = $this->region('nuble');
+        $base = $this->region('biobio');
+        $noTs = new RegionSummary($base->region, $base->label, $base->state, $base->firmsTotal, $base->firmsMissing, $base->levelCounts, $base->unclassifiedCount, $base->comunaCount, $base->criticalComunas, $base->burned, null, null, $base->sources);
+        $x = $this->xpath($this->html([$good, $noTs, $this->region('araucania')]));
+
+        self::assertStringContainsString('Actualizado el 25 de octubre de 2026', $this->text($x, '//footer'));
+        self::assertStringNotContainsString('1970', $x->document->textContent ?? '');
+    }
+
+    public function test_only_timestampless_regions_render_the_unavailable_view(): void
+    {
+        $base = $this->region('nuble');
+        $noTs = new RegionSummary($base->region, $base->label, $base->state, $base->firmsTotal, $base->firmsMissing, $base->levelCounts, $base->unclassifiedCount, $base->comunaCount, $base->criticalComunas, $base->burned, null, null, $base->sources);
+        $x = $this->xpath($this->html([$noTs]));
+
+        self::assertSame(1, $x->query('//p[contains(@class,"cat-band__empty")]')->length);
+        self::assertSame(0, $x->query('//article|//footer')->length);
+        self::assertStringNotContainsString('1970', $x->document->textContent ?? '');
     }
 
     public function test_footer_shows_oldest_update_time_and_sources(): void
@@ -399,8 +477,6 @@ final class BandRendererTest extends TestCase
         $rows = [self::row('1', 'CRITICO', 1, 'FIRMS_TODAY', self::FRESH, '<script>alert(1)</script>')];
         $citation = '<b>x</b> & "q"';
         $burned = self::burned(['a' => self::ha(5.0)], 2025, $citation);
-        // Brain Monkey's esc_url stub keeps quotes and angle brackets; real esc_url() strips them.
-        Functions\when('esc_url')->alias(static fn (string $u): string => htmlspecialchars((string) preg_replace('/[<>"\s]/', '', $u), ENT_QUOTES));
         Filters\expectApplied('cat_datos_methodology_url')->andReturn('https://x.test/?a="><script>alert(2)</script>');
         Filters\expectApplied('cat_datos_explore_url')->andReturn('https://x.test/?b="><img src=x onerror=alert(3)>');
 
@@ -416,7 +492,103 @@ final class BandRendererTest extends TestCase
         self::assertStringContainsString($citation, $this->text($x, '//footer'));
     }
 
+    public function test_hostile_comuna_name_cannot_break_out_of_text_or_attributes(): void
+    {
+        $name = '"><img src=x onerror=1>';
+        $rows = [self::row('1', 'CRITICO', 1, 'FIRMS_TODAY', self::FRESH, $name)];
+        $x = $this->xpath($this->html([$this->region('nuble', $rows), $this->region('biobio'), $this->region('araucania')]));
+
+        self::assertSame(0, $x->query('//img')->length);
+        self::assertSame(0, $x->query('//@*[contains(., "onerror")]')->length, 'no attribute carries the payload');
+        self::assertSame(0, $x->query('//@*[starts-with(name(), "on")]')->length);
+        self::assertStringContainsString($name, $x->document->textContent ?? '', 'the payload survives only as text');
+    }
+
+    /** @return array<string, array{mixed, string}> */
+    public static function urlCases(): array
+    {
+        return [
+            'valid https' => ['https://site.test/metodologia/', 'https://site.test/metodologia/'],
+            'valid http' => ['http://site.test/m/', 'http://site.test/m/'],
+            'site relative path' => ['/metodologia/', '/metodologia/'],
+            'padded' => ["  https://site.test/m/ \n", 'https://site.test/m/'],
+            'javascript scheme' => ['javascript:alert(1)', ''],
+            'data scheme' => ['data:text/html,x', ''],
+            'protocol relative' => ['//evil.test/x', ''],
+            'empty' => ['', ''],
+            'array' => [['https://site.test/'], ''],
+            'int' => [5, ''],
+            'null' => [null, ''],
+        ];
+    }
+
+    #[DataProvider('urlCases')]
+    public function test_filtered_urls_are_validated_and_hidden_when_invalid(mixed $filtered, string $expectedHref): void
+    {
+        Filters\expectApplied('cat_datos_methodology_url')->andReturn($filtered);
+        Filters\expectApplied('cat_datos_explore_url')->andReturn($filtered);
+
+        $x = $this->xpath($this->html($this->fresh()));
+        $note = $x->query('//p[contains(@class,"cat-band__note")]//a/@href');
+        $cta = $x->query('//a[contains(@class,"wp-block-button__link")]/@href');
+
+        if ($expectedHref === '') {
+            self::assertSame(0, $note->length);
+            self::assertSame(0, $cta->length);
+        } else {
+            self::assertSame($expectedHref, $note->item(0)?->nodeValue);
+            self::assertSame($expectedHref, $cta->item(0)?->nodeValue);
+        }
+    }
+
     // ---- accessibility and semantics ----------------------------------------------------------
+
+    public function test_two_renders_in_one_request_never_share_ids_and_only_the_first_has_the_anchor(): void
+    {
+        $renderer = new BandRenderer();
+        $x = $this->xpath('<div>' . $renderer->render($this->fresh(), self::now()) . $renderer->render($this->fresh(), self::now()) . '</div>');
+
+        $ids = [];
+        foreach ($x->query('//@id') as $id) {
+            $ids[] = $id->nodeValue;
+        }
+        self::assertSame($ids, array_values(array_unique($ids)), 'ids are unique across renders');
+        self::assertSame(1, $x->query('//section[@id="datos"]')->length, '#datos only on the first render');
+        self::assertSame(2, $x->query('//section')->length);
+        foreach ($x->query('//section') as $section) {
+            self::assertSame(1, $x->query('.//h2[@id="' . $section->attributes?->getNamedItem('aria-labelledby')?->nodeValue . '"]', $section)->length);
+            foreach ($x->query('.//*[@aria-labelledby]', $section) as $el) {
+                $target = $el->attributes?->getNamedItem('aria-labelledby')?->nodeValue;
+                self::assertSame(1, $x->query('.//*[@id="' . $target . '"]', $section)->length, 'aria-labelledby target lives in the same render');
+            }
+        }
+    }
+
+    public function test_unavailable_markup_also_gets_unique_ids(): void
+    {
+        $renderer = new BandRenderer();
+        $x = $this->xpath('<div>' . $renderer->unavailable() . $renderer->unavailable() . '</div>');
+
+        self::assertSame(1, $x->query('//section[@id="datos"]')->length);
+        $ids = [];
+        foreach ($x->query('//@id') as $id) {
+            $ids[] = $id->nodeValue;
+        }
+        self::assertSame($ids, array_values(array_unique($ids)));
+    }
+
+    public function test_a_failed_first_render_still_carries_the_anchor_once(): void
+    {
+        $renderer = new BandRenderer('/nonexistent/templates');
+        $x = $this->xpath('<div>' . $renderer->render($this->fresh(), self::now()) . $renderer->render($this->fresh(), self::now()) . '</div>');
+
+        self::assertSame(1, $x->query('//section[@id="datos"]')->length);
+        $ids = [];
+        foreach ($x->query('//@id') as $id) {
+            $ids[] = $id->nodeValue;
+        }
+        self::assertSame($ids, array_values(array_unique($ids)));
+    }
 
     public function test_landmarks_headings_and_relations_are_consistent(): void
     {

@@ -8,11 +8,12 @@
 
 defined('ABSPATH') || exit;
 ?>
-<section class="cat-data cat-band" id="datos" aria-labelledby="cat-band-title">
+<?php $titleId = 'cat-band-title-' . (int) $view['uid']; ?>
+<section class="cat-data cat-band"<?php if ($view['anchor']) : ?> id="datos"<?php endif; ?> aria-labelledby="<?php echo esc_attr($titleId); ?>">
 <div class="cat-band__inner">
 <header class="cat-band__head">
 <p class="cat-kicker">Datos · Monitoreo NoFires</p>
-<h2 class="cat-data__title" id="cat-band-title">El territorio, medido.</h2>
+<h2 class="cat-data__title" id="<?php echo esc_attr($titleId); ?>">El territorio, medido.</h2>
 <?php if ($view['headline'] !== null) : ?>
 <p class="cat-band__summary"><?php echo esc_html($view['headline']); ?></p>
 <?php endif; ?>
