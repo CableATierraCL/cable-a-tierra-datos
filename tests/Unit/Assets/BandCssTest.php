@@ -141,12 +141,20 @@ final class BandCssTest extends TestCase
         $this->assertMatchesRegularExpression('/\.cat-band__note a,\.cat-band__foot a\{[^}]*color:#[0-9a-f]{3,6}/i', $print);
     }
 
-    public function test_the_legend_uses_two_columns_between_the_stacking_and_wide_desktop_widths(): void
+    /**
+     * The band can sit in containers narrower than the viewport (a page body, a column), so the
+     * card internals must fit their own width: viewport media queries cannot size the legend.
+     */
+    public function test_the_distribution_track_shrinks_to_the_card_instead_of_its_content(): void
     {
-        $this->assertMatchesRegularExpression(
-            '/@media \(min-width:961px\) and \(max-width:1180px\)\{[^@]*\.cat-legend\{[^}]*repeat\(2,auto\)/',
-            $this->css,
-        );
+        $this->assertMatchesRegularExpression('/\.cat-region__dist\{[^}]*grid-template-columns:minmax\(0,1fr\)/', $this->css);
+    }
+
+    public function test_the_legend_wraps_whole_items_instead_of_using_fixed_columns(): void
+    {
+        $this->assertMatchesRegularExpression('/\.cat-legend\{[^}]*display:flex[^}]*flex-wrap:wrap/', $this->css);
+        $this->assertMatchesRegularExpression('/\.cat-legend__item\{[^}]*white-space:nowrap/', $this->css);
+        $this->assertDoesNotMatchRegularExpression('/\.cat-legend\{[^}]*grid-template-columns/', $this->css);
     }
 
     public function test_the_stylesheet_is_static_so_reduced_motion_needs_no_special_case(): void
