@@ -97,6 +97,131 @@ final class BurnedNormalizerTest extends TestCase
         $this->assertSame(2025, $layer['year']);
     }
 
+    /** @return array<string, array{string}> */
+    public static function nonTrueSuccess(): array
+    {
+        $layer = '"data":{"layers":{"BURNED":{"year":2025,"values":{"G":{"available":false}}}}}';
+
+        return [
+            'missing' => ['{' . $layer . '}'],
+            'string true' => ['{"success":"true",' . $layer . '}'],
+            'one' => ['{"success":1,' . $layer . '}'],
+        ];
+    }
+
+    #[DataProvider('nonTrueSuccess')]
+    public function test_success_must_be_boolean_true(string $body): void
+    {
+        $this->assertNull((new BurnedNormalizer())->normalize($body));
+    }
+
+    /** @return array<string, array{mixed, ?int}> */
+    public static function years(): array
+    {
+        return [
+            'int' => [2025, 2025],
+            'integral float' => [2025.0, 2025],
+            'digit string' => ['2025', 2025],
+            'fractional' => [2025.5, null],
+            'garbage string' => ['20x5', null],
+            'padded string' => [' 2025', null],
+            'bool' => [true, null],
+            'too old' => [1984, null],
+            'too new' => [2101, null],
+            'INF' => ['@raw:1e999', null],
+            'null' => [null, null],
+        ];
+    }
+
+    #[DataProvider('years')]
+    public function test_year_validation(mixed $year, ?int $expected): void
+    {
+        $layer = (new BurnedNormalizer())->normalize($this->body(['year' => $year]));
+
+        $this->assertSame($expected, $layer['year'] ?? null);
+    }
+
+    public function test_year_outside_declared_min_max_is_a_failure(): void
+    {
+        $this->assertNull((new BurnedNormalizer())->normalize($this->body(['year' => 2026, 'minYear' => 2013, 'maxYear' => 2025])));
+        $this->assertNull((new BurnedNormalizer())->normalize($this->body(['year' => 2012, 'minYear' => 2013, 'maxYear' => 2025])));
+        $this->assertNotNull((new BurnedNormalizer())->normalize($this->body(['year' => 2025, 'minYear' => 2013, 'maxYear' => 2025])));
+        $this->assertNotNull((new BurnedNormalizer())->normalize($this->body(['year' => 2030, 'minYear' => 'x', 'maxYear' => null])));
+    }
+
+    /** @return array<string, array{array<string, mixed>}> */
+    public static function invalidEntries(): array
+    {
+        $unavailable = ['available' => false, 'burnedFraction' => null, 'burnedHa' => null];
+
+        return [
+            'INF area' => [['available' => true, 'burnedFraction' => 0.1, 'burnedHa' => '@raw:1e999']],
+            'negative area' => [['available' => true, 'burnedFraction' => 0.1, 'burnedHa' => -1]],
+            'garbage area' => [['available' => true, 'burnedFraction' => 0.1, 'burnedHa' => 'oops']],
+            'missing area' => [['available' => true, 'burnedFraction' => 0.1]],
+            'non-bool available' => [['available' => 'yes', 'burnedFraction' => 0.1, 'burnedHa' => 5]],
+            'null available' => [['available' => null, 'burnedFraction' => 0.1, 'burnedHa' => 5]],
+            'missing available' => [['burnedFraction' => 0.1, 'burnedHa' => 5]],
+        ];
+    }
+
+    /** @param array<string, mixed> $entry */
+    #[DataProvider('invalidEntries')]
+    public function test_untrustworthy_entries_are_kept_unavailable_with_nulls(array $entry): void
+    {
+        $layer = (new BurnedNormalizer())->normalize($this->body([], ['G' => $entry, 'OK' => ['available' => true, 'burnedFraction' => 0.5, 'burnedHa' => 2]]));
+
+        $this->assertSame(['available' => false, 'burnedFraction' => null, 'burnedHa' => null], $layer['values']['G']);
+        $this->assertTrue($layer['values']['OK']['available']);
+    }
+
+    /** @return array<string, array{mixed}> */
+    public static function invalidFractions(): array
+    {
+        return ['INF' => ['@raw:1e999'], 'negative' => [-0.1], 'above one' => [1.01], 'garbage' => ['x']];
+    }
+
+    #[DataProvider('invalidFractions')]
+    public function test_invalid_fraction_becomes_null_without_losing_the_area(mixed $fraction): void
+    {
+        $layer = (new BurnedNormalizer())->normalize($this->body([], ['G' => ['available' => true, 'burnedFraction' => $fraction, 'burnedHa' => 3]]));
+
+        $this->assertSame(['available' => true, 'burnedFraction' => null, 'burnedHa' => 3.0], $layer['values']['G']);
+        $this->assertIsString(json_encode($layer));
+    }
+
+    public function test_citation_is_cleaned_capped_and_empty_becomes_null(): void
+    {
+        $clean = (new BurnedNormalizer())->normalize($this->body(['citation' => " MapBiomas\x00\x07 2025\n "]));
+        $long = (new BurnedNormalizer())->normalize($this->body(['citation' => str_repeat('ñ', 1500)]));
+        $empty = (new BurnedNormalizer())->normalize($this->body(['citation' => " \x00\n "]));
+
+        $this->assertSame('MapBiomas 2025', $clean['citation']);
+        $this->assertSame(1000, mb_strlen($long['citation']));
+        $this->assertNull($empty['citation']);
+    }
+
+    public function test_only_string_non_numeric_gids_are_accepted(): void
+    {
+        $entry = ['available' => false];
+        $layer = (new BurnedNormalizer())->normalize($this->body([], ['123' => $entry, '1.5' => $entry, 'CHL.6.1.1_1' => $entry]));
+
+        $this->assertSame(['CHL.6.1.1_1'], array_keys($layer['values']));
+        $this->assertSame('CHL.6.1.1_1', array_key_first($layer['values']));
+    }
+
+    /**
+     * @param array<string, mixed> $layer
+     * @param array<string, mixed>|null $values
+     */
+    private function body(array $layer, ?array $values = null): string
+    {
+        $layer = array_merge(['year' => 2025, 'values' => $values ?? ['G' => ['available' => false]]], $layer);
+        $json = json_encode(['success' => true, 'data' => ['layers' => ['BURNED' => $layer]]], JSON_THROW_ON_ERROR);
+
+        return (string) preg_replace('/"@raw:([^"]+)"/', '$1', $json);
+    }
+
     /** @param array<string, mixed> $row @return list<string> */
     private function sortedKeys(array $row): array
     {
