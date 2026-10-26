@@ -37,7 +37,7 @@ Contract, return shapes and guarantees are documented next to the functions in [
 | Filter | Default | Effect |
 |--------|---------|--------|
 | `cat_datos_methodology_url` | `''` | URL of the methodology page. The "Como se calcula" link renders only when this is non-empty. |
-| `cat_datos_explore_url` | `home_url( '/datos/' )` | Target of the "Explorar los datos" button. The button renders only when this is non-empty. |
+| `cat_datos_explore_url` | `''` (hidden) | Target of the "Explorar los datos" button. The button renders only when this is non-empty. Hidden by default until the `/datos/` page has real content. |
 
 Only `http(s)` and relative URLs are accepted; anything else is dropped.
 

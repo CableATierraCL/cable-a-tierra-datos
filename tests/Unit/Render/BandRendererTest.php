@@ -282,6 +282,7 @@ final class BandRendererTest extends TestCase
 
     public function test_all_unavailable_renders_only_heading_message_and_cta(): void
     {
+        Filters\expectApplied('cat_datos_explore_url')->andReturn('https://site.test/datos/');
         $x = $this->xpath($this->html([$this->region('nuble', []), $this->region('biobio', []), $this->region('araucania', [])]));
 
         self::assertSame('El territorio, medido.', $this->text($x, '//h2'));
@@ -461,13 +462,15 @@ final class BandRendererTest extends TestCase
         self::assertSame('https://site.test/metodologia/', $x->query('//p[contains(@class,"cat-band__note")]//a/@href')->item(0)?->nodeValue);
     }
 
-    public function test_cta_defaults_to_the_data_page_and_can_be_removed_by_filter(): void
+    /** Hidden by default until the /datos/ page has real content; a filter turns it on. */
+    public function test_cta_is_hidden_by_default_and_enabled_by_filter(): void
     {
+        self::assertSame(0, $this->xpath($this->html($this->fresh()))->query('//a[contains(@class,"wp-block-button__link")]')->length);
+        self::assertSame(0, $this->xpath($this->html([]))->query('//a[contains(@class,"wp-block-button__link")]')->length);
+
+        Filters\expectApplied('cat_datos_explore_url')->once()->andReturn('https://site.test/datos/');
         $x = $this->xpath($this->html($this->fresh()));
         self::assertSame('https://site.test/datos/', $x->query('//a[contains(@class,"wp-block-button__link")]/@href')->item(0)?->nodeValue);
-
-        Filters\expectApplied('cat_datos_explore_url')->once()->andReturn('');
-        self::assertSame(0, $this->xpath($this->html($this->fresh()))->query('//a[contains(@class,"wp-block-button__link")]')->length);
     }
 
     // ---- escaping ---------------------------------------------------------------------------
