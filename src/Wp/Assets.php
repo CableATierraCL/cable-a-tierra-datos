@@ -27,11 +27,17 @@ final class Assets
     ) {
     }
 
-    /** The detail tables stylesheet, enqueued up front on a singular page whose content has the shortcode. */
+    /** The detail stylesheet (tables and methodology), enqueued up front on a singular page whose content has either shortcode. */
     public static function detail(string $dir = CAT_DATOS_DIR): self
     {
-        return new self($dir, self::DETAIL_HANDLE, self::DETAIL_PATH, static fn (): bool => is_singular()
-            && has_shortcode((string) get_post_field('post_content', get_queried_object_id()), DetailShortcode::TAG));
+        return new self($dir, self::DETAIL_HANDLE, self::DETAIL_PATH, static function (): bool {
+            if (!is_singular()) {
+                return false;
+            }
+            $content = (string) get_post_field('post_content', get_queried_object_id());
+
+            return has_shortcode($content, DetailShortcode::TAG) || has_shortcode($content, MethodologyShortcode::TAG);
+        });
     }
 
     public function register(): void

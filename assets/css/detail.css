@@ -22,7 +22,14 @@
 .cat-detail__sw--preventivo{background:radial-gradient(circle,var(--cat-ink) 1px,transparent 1.5px) 0 0/5px 5px,var(--cat-sage)}
 .cat-detail__sw--normal{box-shadow:inset 0 0 0 2px var(--cat-rule)}
 .cat-detail__sw--unknown{border-style:dashed}
+.cat-detail--method>*{margin:0}
+.cat-detail__sub{font:600 1.125rem/1.3 var(--cat-display)}
+.cat-detail__levels,.cat-detail__list{display:grid;gap:.5rem;padding-left:1.25rem}
+.cat-detail__list{margin:.25rem 0 0}
+.cat-detail__terms{display:grid;gap:.25rem}
+.cat-detail__terms dt{font-weight:600}
+.cat-detail__terms dd{margin:0 0 .5rem}
 .cat-detail__foot{display:grid;gap:.25rem;font-size:.8125rem;color:var(--cat-muted)}
 .cat-detail__foot p{margin:0}
-.cat-detail__cite{font-size:.75rem}
+.cat-detail__cite{font-size:.75rem;overflow-wrap:anywhere}
 @media print{.cat-detail{--cat-paper:#fff;--cat-muted:#333}.cat-detail__scroll{overflow:visible}.cat-detail__table{min-width:0}.cat-detail__table tr{break-inside:avoid}.cat-detail__table th[scope="row"],.cat-detail__table thead th:first-child{position:static}.cat-detail__sw{print-color-adjust:exact;-webkit-print-color-adjust:exact}.cat-detail__nav{display:none}}

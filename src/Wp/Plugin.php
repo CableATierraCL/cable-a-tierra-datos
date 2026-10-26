@@ -26,6 +26,7 @@ final class Plugin
         add_filter('cron_schedules', [Cron::class, 'addSchedule']);
         add_action('init', [self::class, 'registerShortcode']);
         add_action('init', [self::class, 'registerDetailShortcode']);
+        add_action('init', [self::class, 'registerMethodologyShortcode']);
         add_action('init', [self::class, 'ensureSchedule']);
         add_action('wp_enqueue_scripts', static function (): void {
             (new Assets())->onEnqueueScripts();
@@ -64,6 +65,12 @@ final class Plugin
     public static function registerDetailShortcode(): void
     {
         (new DetailShortcode(self::repository(), new SystemClock(), new DetailRenderer(), self::logger(), Assets::detail()))->register();
+    }
+
+    /** `init` callback. Static content: deliberately takes no repository. */
+    public static function registerMethodologyShortcode(): void
+    {
+        (new MethodologyShortcode(self::logger(), Assets::detail()))->register();
     }
 
     /** Shared, lazily built so that booting stays free of work. */

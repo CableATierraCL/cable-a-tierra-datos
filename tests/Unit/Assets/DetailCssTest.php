@@ -89,7 +89,7 @@ final class DetailCssTest extends TestCase
             'cat-detail', 'cat-detail__nav', 'cat-detail__panel', 'cat-detail__title', 'cat-detail__asof', 'cat-detail__flag',
             'cat-detail__coverage', 'cat-detail__empty', 'cat-detail__scroll', 'cat-detail__table', 'cat-detail__num',
             'cat-detail__sw', 'cat-detail__sw--critico', 'cat-detail__sw--alto', 'cat-detail__sw--preventivo', 'cat-detail__sw--normal',
-            'cat-detail__foot', 'cat-detail__cite',
+            'cat-detail__foot', 'cat-detail__cite', 'cat-detail__sub', 'cat-detail__levels', 'cat-detail__terms', 'cat-detail__list',
         ] as $class) {
             $this->assertStringContainsString('.' . $class, $this->css, "missing .$class");
         }
@@ -102,6 +102,11 @@ final class DetailCssTest extends TestCase
         $this->assertMatchesRegularExpression('/\.cat-detail__scroll\{[^}]*overflow-x:auto/', $this->css);
         $this->assertMatchesRegularExpression('/\.cat-detail__nav\{[^}]*flex-wrap:wrap/', $this->css);
         $this->assertMatchesRegularExpression('/\.cat-detail\{[^}]*grid-template-columns:minmax\(0,1fr\)/', $this->css);
+    }
+
+    public function test_the_citation_can_wrap_anywhere(): void
+    {
+        $this->assertMatchesRegularExpression('/\.cat-detail__cite\{[^}]*overflow-wrap:anywhere/', $this->css);
     }
 
     public function test_numeric_columns_are_right_aligned_with_tabular_figures(): void
