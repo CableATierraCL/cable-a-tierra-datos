@@ -8,6 +8,7 @@ use CableATierra\Datos\Data\Repository;
 use CableATierra\Datos\Domain\Dataset;
 use CableATierra\Datos\Domain\Region;
 use CableATierra\Datos\Render\BandRenderer;
+use CableATierra\Datos\Render\DetailRenderer;
 
 /**
  * Composition root: wires the WordPress adapters into the core.
@@ -24,8 +25,12 @@ final class Plugin
         });
         add_filter('cron_schedules', [Cron::class, 'addSchedule']);
         add_action('init', [self::class, 'registerShortcode']);
+        add_action('init', [self::class, 'registerDetailShortcode']);
         add_action('init', [self::class, 'ensureSchedule']);
-        add_action('wp_enqueue_scripts', [new Assets(), 'onEnqueueScripts']);
+        add_action('wp_enqueue_scripts', static function (): void {
+            (new Assets())->onEnqueueScripts();
+            Assets::detail()->onEnqueueScripts();
+        });
     }
 
     /**
@@ -53,6 +58,12 @@ final class Plugin
     public static function registerShortcode(): void
     {
         (new Shortcode(self::repository(), new SystemClock(), new BandRenderer(), self::logger(), new Assets()))->register();
+    }
+
+    /** `init` callback. */
+    public static function registerDetailShortcode(): void
+    {
+        (new DetailShortcode(self::repository(), new SystemClock(), new DetailRenderer(), self::logger(), Assets::detail()))->register();
     }
 
     /** Shared, lazily built so that booting stays free of work. */
