@@ -33,3 +33,8 @@ spl_autoload_register(static function (string $class): void {
         require_once $path;
     }
 });
+
+// The test bootstrap loads this file without WordPress, where add_action does not exist.
+if (function_exists('add_action')) {
+    add_action('plugins_loaded', [\CableATierra\Datos\Wp\Plugin::class, 'boot']);
+}
