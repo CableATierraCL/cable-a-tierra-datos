@@ -55,18 +55,92 @@ final class RepositoryRefreshTest extends RepositoryTestCase
         $this->assertCount(1, $this->http->calls);
     }
 
-    public function test_transient_expiring_exactly_at_ttl_triggers_refetch(): void
+    public function test_a_pair_becomes_due_for_cron_120_seconds_before_its_ttl(): void
     {
         $this->http->queue(self::ok(Dataset::Risk, 'biobio'), self::ok(Dataset::Risk, 'biobio'));
         $this->repo->refresh('biobio', Dataset::Risk);
 
-        $this->clock->advance(899);
+        $this->clock->advance(779);
         $this->repo->refresh('biobio', Dataset::Risk);
         $this->assertCount(1, $this->http->calls);
 
         $this->clock->advance(1);
         $this->assertSame(Source::Api, $this->repo->refresh('biobio', Dataset::Risk)->source);
         $this->assertCount(2, $this->http->calls);
+    }
+
+    public function test_a_cron_run_one_grid_step_after_a_late_write_still_fetches(): void
+    {
+        // The transient was written a few seconds after the grid tick (lag + fetch time).
+        $this->http->queue(self::ok(Dataset::Risk, 'biobio'), self::ok(Dataset::Risk, 'biobio'));
+        $this->clock->advance(3);
+        $this->repo->refresh('biobio', Dataset::Risk);
+
+        $this->clock->advance(897); // next tick on the grid: 900 s after the previous tick, 897 s after the write
+        $this->assertGreaterThan(0, count($this->cache->transients));
+        $this->assertSame(Source::Api, $this->repo->refresh('biobio', Dataset::Risk)->source);
+        $this->assertCount(2, $this->http->calls);
+    }
+
+    public function test_a_cron_run_well_before_the_ttl_does_not_fetch(): void
+    {
+        $this->http->queue(self::ok(Dataset::Risk, 'biobio'), self::ok(Dataset::Risk, 'biobio'));
+        $this->repo->refresh('biobio', Dataset::Risk);
+
+        $this->clock->advance(600);
+
+        $this->assertSame(Source::Cache, $this->repo->refresh('biobio', Dataset::Risk)->source);
+        $this->assertCount(1, $this->http->calls);
+    }
+
+    public function test_burned_is_not_refetched_by_every_fifteen_minute_run(): void
+    {
+        $this->http->queue(self::ok(Dataset::Burned, 'nuble'), self::ok(Dataset::Burned, 'nuble'));
+        $this->repo->refresh('nuble', Dataset::Burned);
+
+        for ($i = 0; $i < 90; $i++) { // 22.5 hours of 15-minute runs
+            $this->clock->advance(900);
+            $this->repo->refresh('nuble', Dataset::Burned);
+        }
+        $this->assertCount(1, $this->http->calls);
+
+        $this->clock->advance(86400 - 120 - 90 * 900); // reach ttl - 120
+        $this->assertSame(Source::Api, $this->repo->refresh('nuble', Dataset::Burned)->source);
+        $this->assertCount(2, $this->http->calls);
+    }
+
+    public function test_an_early_refresh_failure_keeps_serving_the_still_fresh_transient_data(): void
+    {
+        $this->http->queue(self::ok(Dataset::Risk, 'biobio'), new HttpResponse(500));
+        $good = $this->repo->refresh('biobio', Dataset::Risk);
+        $this->clock->advance(800);
+
+        $result = $this->repo->refresh('biobio', Dataset::Risk);
+
+        $this->assertSame($good->payload, $result->payload);
+        $this->assertSame(Source::LastGood, $result->source);
+    }
+
+    public function test_the_due_check_does_not_bypass_backoff_or_lock(): void
+    {
+        $this->http->queue(self::ok(Dataset::Risk, 'biobio'), new HttpResponse(500));
+        $this->repo->refresh('biobio', Dataset::Risk);
+        $this->clock->advance(800);
+        $this->cache->set(self::key('lock', Dataset::Risk, 'biobio'), 1, 30);
+
+        $this->repo->refresh('biobio', Dataset::Risk);
+
+        $this->assertCount(1, $this->http->calls);
+    }
+
+    public function test_the_page_path_still_serves_the_fresh_transient_when_the_pair_is_cron_due(): void
+    {
+        $this->http->queue(self::ok(Dataset::Risk, 'biobio'));
+        $this->repo->refresh('biobio', Dataset::Risk);
+        $this->clock->advance(800);
+
+        $this->assertSame(Source::Cache, $this->repo->read('biobio', Dataset::Risk)->source);
+        $this->assertCount(1, $this->http->calls);
     }
 
     public function test_transport_error_falls_back_to_untouched_last_good(): void

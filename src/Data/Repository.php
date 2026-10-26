@@ -10,6 +10,8 @@ use CableATierra\Datos\Domain\Source;
 use CableATierra\Datos\Port\Cache;
 use CableATierra\Datos\Port\Clock;
 use CableATierra\Datos\Port\HttpClient;
+use CableATierra\Datos\Port\Logger;
+use CableATierra\Datos\Port\NullLogger;
 use CableATierra\Datos\Port\Scheduler;
 
 /**
@@ -32,6 +34,8 @@ final class Repository
     private const API_BACKOFF_KEY = 'cat_datos_v1_backoff_api';
     /** A last-good older than ttl + this many seconds means cron is evidently not running. */
     private const CRON_GRACE = 21600;
+    /** Cron refreshes a pair this many seconds before its transient would expire (covers cron lag). */
+    private const CRON_EARLY = 120;
     private const INLINE_TIMEOUT = 3.0;
     private const CRON_TIMEOUT = 5.0;
 
@@ -45,7 +49,45 @@ final class Repository
         private readonly Scheduler $scheduler,
         private readonly RiskNormalizer $risk = new RiskNormalizer(),
         private readonly BurnedNormalizer $burned = new BurnedNormalizer(),
+        private readonly Logger $logger = new NullLogger(),
     ) {
+    }
+
+    /**
+     * Every transient this class can write (data, lock, backoff per pair, plus the API-wide
+     * backoff). The uninstaller deletes exactly these.
+     *
+     * @return list<string>
+     */
+    public static function transientKeys(): array
+    {
+        $keys = [self::API_BACKOFF_KEY];
+        foreach (Region::cases() as $region) {
+            foreach (Dataset::cases() as $dataset) {
+                foreach (['', 'lock', 'backoff'] as $kind) {
+                    $keys[] = self::key($kind, $dataset, $region);
+                }
+            }
+        }
+
+        return $keys;
+    }
+
+    /**
+     * Every option this class can write: the last-good payload per pair.
+     *
+     * @return list<string>
+     */
+    public static function optionKeys(): array
+    {
+        $keys = [];
+        foreach (Region::cases() as $region) {
+            foreach (Dataset::cases() as $dataset) {
+                $keys[] = self::key('lastgood', $dataset, $region);
+            }
+        }
+
+        return $keys;
     }
 
     /**
@@ -92,16 +134,28 @@ final class Repository
         }
     }
 
-    /** Cron path: fresh transient -> API (5 s) -> last-good -> none. */
+    /**
+     * Cron path: API (5 s) -> last-good -> none, but only for a pair that is due. A pair is due
+     * when it has no last-good or its last-good is at least ttl - CRON_EARLY seconds old, so a
+     * transient written a few seconds after the previous grid tick cannot make the next tick skip.
+     * Otherwise the still-fresh transient is served as is.
+     */
     public function refresh(string $region, Dataset $dataset): DatasetResult
     {
         try {
             $enum = Region::tryFrom($region);
 
-            return $enum === null ? DatasetResult::none() : $this->load($enum, $dataset, false);
+            return $enum === null ? DatasetResult::none() : $this->load($enum, $dataset, false, $this->cronDue($enum, $dataset));
         } catch (\Throwable) {
             return DatasetResult::none();
         }
+    }
+
+    private function cronDue(Region $region, Dataset $dataset): bool
+    {
+        $lastGood = $this->stored($this->cache->getOption($this->key('lastgood', $dataset, $region)), $dataset);
+
+        return $lastGood === null || $this->clock->now() - $lastGood['fetchedAt'] >= $dataset->ttl() - self::CRON_EARLY;
     }
 
     private function inlineAllowed(Region $region, Dataset $dataset): bool
@@ -111,11 +165,11 @@ final class Repository
             && $this->cache->get($this->key('backoff', $dataset, $region)) === null;
     }
 
-    private function load(Region $enum, Dataset $dataset, bool $inline): DatasetResult
+    private function load(Region $enum, Dataset $dataset, bool $inline, bool $due = false): DatasetResult
     {
         try {
             $fresh = $this->stored($this->cache->get($this->key('', $dataset, $enum)), $dataset);
-            if ($fresh !== null) {
+            if ($fresh !== null && !$due) {
                 return $this->result(Source::Cache, $fresh);
             }
 
@@ -174,21 +228,48 @@ final class Repository
         try {
             try {
                 $response = $this->http->get($url, $timeout);
-            } catch (\Throwable) {
+            } catch (\Throwable $e) {
+                $this->warn($region, $dataset, 'unexpected ' . $e::class . ': ' . $e->getMessage());
                 $response = null;
             }
             if ($response === null || $response->status !== 200 || $response->body === null) {
+                if ($response !== null) {
+                    // Status and transport error only: a response body may carry anything.
+                    $this->warn($region, $dataset, match (true) {
+                        $response->status === null => 'transport error: ' . ($response->error ?? 'unknown'),
+                        $response->status !== 200 => 'HTTP ' . $response->status,
+                        default => 'empty body',
+                    });
+                }
                 // Transport/HTTP-level failure: the API itself is unhealthy, pause every pair.
                 $this->cache->set(self::API_BACKOFF_KEY, 1, self::BACKOFF_TTL);
 
                 return null;
             }
 
-            return $dataset === Dataset::Risk
+            $payload = $dataset === Dataset::Risk
                 ? $this->risk->normalize($response->body)
                 : $this->burned->normalize($response->body);
-        } catch (\Throwable) {
+            if ($payload === null) {
+                $this->warn($region, $dataset, 'invalid payload');
+            }
+
+            return $payload;
+        } catch (\Throwable $e) {
+            $this->warn($region, $dataset, 'unexpected ' . $e::class . ': ' . $e->getMessage());
+
             return null;
+        }
+    }
+
+    /** One line, bounded, control characters removed. A broken logger must not break a refresh. */
+    private function warn(Region $region, Dataset $dataset, string $reason): void
+    {
+        try {
+            $reason = trim((string) preg_replace('/[\x00-\x1F\x7F\s]+/', ' ', $reason));
+            $this->logger->warning($dataset->value . '/' . $region->value . ': ' . (strlen($reason) > 200 ? substr($reason, 0, 200) : $reason));
+        } catch (\Throwable) {
+            // Logging is best effort.
         }
     }
 
@@ -245,7 +326,7 @@ final class Repository
     }
 
     /** Empty $kind is the data transient: cat_datos_v1_{dataset}_{region}. */
-    private function key(string $kind, Dataset $dataset, Region $region): string
+    private static function key(string $kind, Dataset $dataset, Region $region): string
     {
         return 'cat_datos_v1_' . ($kind === '' ? '' : $kind . '_') . $dataset->value . '_' . $region->value;
     }

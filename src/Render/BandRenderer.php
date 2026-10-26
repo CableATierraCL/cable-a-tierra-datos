@@ -110,7 +110,8 @@ final class BandRenderer
             'headline' => MacrozonaHeadline::compose($ordered, $now),
             'cards' => $cards,
             'methodologyUrl' => $this->url('cat_datos_methodology_url', ''),
-            'ctaUrl' => $this->url('cat_datos_explore_url', home_url('/datos/')),
+            // Hidden until the /datos/ page has real content; enable via the filter.
+            'ctaUrl' => $this->url('cat_datos_explore_url', ''),
             'footer' => $this->footer($live, $this->shownBurnedCitations($ordered, $cards)),
         ];
     }
@@ -118,7 +119,7 @@ final class BandRenderer
     /** @return array<string, mixed> */
     private function emptyView(int $instance): array
     {
-        return ['uid' => $instance, 'anchor' => $instance === 1, 'headline' => null, 'cards' => [], 'methodologyUrl' => '', 'ctaUrl' => $this->url('cat_datos_explore_url', home_url('/datos/')), 'footer' => null];
+        return ['uid' => $instance, 'anchor' => $instance === 1, 'headline' => null, 'cards' => [], 'methodologyUrl' => '', 'ctaUrl' => $this->url('cat_datos_explore_url', ''), 'footer' => null];
     }
 
     /** @return array<string, mixed> */
