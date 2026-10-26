@@ -23,6 +23,16 @@ final class MacrozonaHeadline
      */
     public static function compose(array $summaries, int $now): ?string
     {
+        try {
+            return self::build($summaries, $now);
+        } catch (\Throwable) {
+            return null; // a headline is decoration: never break the page for it
+        }
+    }
+
+    /** @param list<RegionSummary> $summaries */
+    private static function build(array $summaries, int $now): ?string
+    {
         $byRegion = [];
         foreach ($summaries as $summary) {
             $byRegion[$summary->region] = $summary;
@@ -43,21 +53,39 @@ final class MacrozonaHeadline
         }
 
         $critical = [];
+        $stale = [];
         $high = 0;
         $total = 0;
+        $unclassified = 0;
         foreach ($included as $summary) {
             $high += $summary->levelCounts['ALTO'] ?? 0;
             $total += $summary->comunaCount;
+            $unclassified += $summary->unclassifiedCount;
+            if ($summary->state === Freshness::Stale || $summary->state === Freshness::VeryStale) {
+                $stale[] = $summary->label;
+            }
             foreach ($summary->criticalComunas as $comuna) {
                 $critical[] = [$summary->label, $comuna];
             }
         }
 
-        $text = $critical === []
-            ? sprintf('Ninguna comuna en nivel crítico. %d de %d %s en nivel alto.', $high, $total, $high === 1 ? 'está' : 'están')
-            : self::criticalSentence($critical, $now);
+        $sentences = [];
+        if ($critical !== []) {
+            $sentences[] = self::criticalSentence($critical, $now);
+        } elseif ($unclassified < $total) {
+            $sentences[] = sprintf('Ninguna comuna en nivel crítico. %d de %d %s en nivel alto.', $high, $total, $high === 1 ? 'está' : 'están');
+        }
+        if ($stale !== []) {
+            $sentences[] = 'Datos desactualizados de ' . self::join($stale) . '.';
+        }
+        if ($unclassified > 0) {
+            $sentences[] = $unclassified . ($unclassified === 1 ? ' comuna sin clasificar.' : ' comunas sin clasificar.');
+        }
+        if ($missing !== []) {
+            $sentences[] = 'Sin datos de ' . self::join($missing) . '.';
+        }
 
-        return $missing === [] ? $text : $text . ' Sin datos de ' . self::join($missing) . '.';
+        return implode(' ', $sentences);
     }
 
     /** @param non-empty-list<array{string, array{comunaId: string, nombre: string, driverKey: ?string, computedAt: string}}> $critical */
@@ -67,22 +95,24 @@ final class MacrozonaHeadline
         $groups = [];
         foreach (array_slice($critical, 0, self::MAX_NAMES) as [$label, $comuna]) {
             $ts = LocalTime::parseUtc($comuna['computedAt']);
-            $date = $ts !== null && LocalTime::dateKey($ts) !== LocalTime::dateKey($now) ? SpanishDate::day(LocalTime::at($ts)) : null;
-            $groups[$label . '|' . $comuna['driverKey'] . '|' . $date][] = [$label, $comuna, $date];
+            $cuando = match (true) {
+                $ts === null => null, // unknown date: say nothing rather than "hoy"
+                LocalTime::dateKey($ts) === LocalTime::dateKey($now) => 'hoy',
+                default => 'el ' . SpanishDate::day(LocalTime::at($ts)),
+            };
+            $groups[$label . '|' . $comuna['driverKey'] . '|' . $cuando][] = [$label, $comuna, $cuando];
         }
 
         $segments = [];
         foreach ($groups as $members) {
-            [$label, $first, $date] = $members[0];
-            $clause = DriverCopy::clause($first['driverKey'], count($members) > 1, $date);
+            [$label, $first, $cuando] = $members[0];
+            $clause = DriverCopy::clause($first['driverKey'], count($members) > 1, $cuando);
             $names = self::join(array_map(static fn (array $m): string => $m[1]['nombre'], $members));
             $segments[] = $names . ' (' . $label . ')' . ($clause !== null ? ', ' . $clause : '');
         }
-        if ($count > self::MAX_NAMES) {
-            $segments[] = 'y ' . ($count - self::MAX_NAMES) . ' más';
-        }
+        $overflow = $count > self::MAX_NAMES ? ', y ' . ($count - self::MAX_NAMES) . ' más' : '';
 
-        return $count . ($count === 1 ? ' comuna' : ' comunas') . ' en nivel crítico: ' . implode('; ', $segments) . '.';
+        return $count . ($count === 1 ? ' comuna' : ' comunas') . ' en nivel crítico: ' . implode('; ', $segments) . $overflow . '.';
     }
 
     /** @param list<string> $items "A", "A y B", "A, B y C" */

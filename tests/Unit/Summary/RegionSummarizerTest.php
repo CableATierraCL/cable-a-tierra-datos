@@ -156,6 +156,36 @@ final class RegionSummarizerTest extends TestCase
         $this->assertSame($age, $s['ageSeconds']);
     }
 
+    public function testRowWithAnUnparsableDateIsExcludedFromEveryCount(): void
+    {
+        $s = $this->summarize(self::risk([
+            self::row('good', 'ALTO', 2),
+            self::row('bad-crit', 'CRITICO', 5, 'FWI', 'not-a-date', 'Mala'),
+            self::row('bad-unk', 'UNKNOWN', 1, null, ''),
+            self::row('crit', 'CRITICO', 1, 'FWI', name: 'Buena'),
+        ]));
+
+        $this->assertSame(2, $s['comunaCount']);
+        $this->assertSame(['CRITICO' => 1, 'ALTO' => 1, 'PREVENTIVO' => 0, 'NORMAL' => 0], $s['levelCounts']);
+        $this->assertSame(0, $s['unclassifiedCount']);
+        $this->assertSame(3, $s['firmsTotal']);
+        $this->assertSame(0, $s['firmsMissing']);
+        $this->assertSame(['Buena'], array_column($s['criticalComunas'], 'nombre'));
+    }
+
+    public function testAllRowsUnparsableIsUnavailableWithZeroCounts(): void
+    {
+        $s = $this->summarize(self::risk([self::row('a', 'CRITICO', 3, 'FWI', 'nope'), self::row('b', 'ALTO', 1, null, '')]));
+
+        $this->assertSame('unavailable', $s['state']);
+        $this->assertSame(0, $s['comunaCount']);
+        $this->assertSame(0, $s['unclassifiedCount']);
+        $this->assertSame(0, $s['firmsMissing']);
+        $this->assertNull($s['firmsTotal']);
+        $this->assertSame([], $s['criticalComunas']);
+        $this->assertSame(['CRITICO' => 0, 'ALTO' => 0, 'PREVENTIVO' => 0, 'NORMAL' => 0], $s['levelCounts']);
+    }
+
     public function testOldestComunaGovernsTheState(): void
     {
         $old = gmdate('Y-m-d\TH:i:s\Z', self::now() - 26 * 3600);

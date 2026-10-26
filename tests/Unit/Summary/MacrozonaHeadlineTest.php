@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace CableATierra\Datos\Tests\Unit\Summary;
 
 use CableATierra\Datos\Data\DatasetResult;
+use CableATierra\Datos\Domain\Freshness;
 use CableATierra\Datos\Summary\DriverCopy;
 use CableATierra\Datos\Summary\MacrozonaHeadline;
 use CableATierra\Datos\Summary\RegionSummarizer;
 use CableATierra\Datos\Summary\RegionSummary;
 use CableATierra\Datos\Tests\Support\SummaryFixtures;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class MacrozonaHeadlineTest extends TestCase
@@ -47,27 +49,33 @@ final class MacrozonaHeadlineTest extends TestCase
         return $summaries;
     }
 
-    public function testDriverPhrases(): void
+    /** @return array<string, array{string, bool, ?string, ?string}> */
+    public static function clauses(): array
     {
-        $this->assertSame('foco de calor detectado hoy', DriverCopy::phrase('FIRMS_TODAY', false, null));
-        $this->assertSame('focos de calor detectados hoy', DriverCopy::phrase('FIRMS_TODAY', true, null));
-        $this->assertSame('varios focos de calor en las últimas 48 h', DriverCopy::phrase('FIRMS_CLUSTER', false, null));
-        $this->assertSame('focos de calor de alta intensidad', DriverCopy::phrase('FIRMS_FRP', true, null));
-        $this->assertSame('condiciones meteorológicas extremas', DriverCopy::phrase('FWI', false, null));
-        $this->assertSame('puntaje de riesgo muy alto', DriverCopy::phrase('SCORE', false, null));
+        return [
+            'today, singular, today' => ['FIRMS_TODAY', false, 'hoy', 'por un foco de calor detectado hoy'],
+            'today, plural, today' => ['FIRMS_TODAY', true, 'hoy', 'por focos de calor detectados hoy'],
+            'today, singular, past' => ['FIRMS_TODAY', false, 'el 24 oct', 'por un foco de calor detectado el 24 oct'],
+            'today, plural, past' => ['FIRMS_TODAY', true, 'el 24 oct', 'por focos de calor detectados el 24 oct'],
+            'today, singular, unknown date' => ['FIRMS_TODAY', false, null, 'por un foco de calor detectado'],
+            'today, plural, unknown date' => ['FIRMS_TODAY', true, null, 'por focos de calor detectados'],
+            'cluster, singular, today' => ['FIRMS_CLUSTER', false, 'hoy', 'por varios focos de calor en las últimas 48 h'],
+            'cluster, plural, past' => ['FIRMS_CLUSTER', true, 'el 24 oct', 'por varios focos de calor en las últimas 48 h'],
+            'frp, singular, today' => ['FIRMS_FRP', false, 'hoy', 'por focos de calor de alta intensidad'],
+            'frp, plural, past' => ['FIRMS_FRP', true, 'el 24 oct', 'por focos de calor de alta intensidad'],
+            'fwi, singular, today' => ['FWI', false, 'hoy', 'por condiciones meteorológicas extremas'],
+            'fwi, plural, past' => ['FWI', true, 'el 24 oct', 'por condiciones meteorológicas extremas'],
+            'score, singular, today' => ['SCORE', false, 'hoy', 'por un puntaje de riesgo muy alto'],
+            'score, plural, past' => ['SCORE', true, 'el 24 oct', 'por un puntaje de riesgo muy alto'],
+            'no driver' => [null, false, 'hoy', null],
+            'unknown driver' => ['EXTREMO', false, 'hoy', null],
+        ];
     }
 
-    public function testHoyBecomesADateWhenDataIsNotFromToday(): void
+    #[DataProvider('clauses')]
+    public function testDriverClauses(?string $driver, bool $plural, ?string $cuando, ?string $expected): void
     {
-        $this->assertSame('foco de calor detectado el 24 oct', DriverCopy::phrase('FIRMS_TODAY', false, '24 oct'));
-        $this->assertSame('focos de calor detectados el 24 oct', DriverCopy::phrase('FIRMS_TODAY', true, '24 oct'));
-        $this->assertSame('condiciones meteorológicas extremas', DriverCopy::phrase('FWI', false, '24 oct'));
-    }
-
-    public function testNullAndUnknownDriversHaveNoPhrase(): void
-    {
-        $this->assertNull(DriverCopy::phrase(null, false, null));
-        $this->assertNull(DriverCopy::phrase('EXTREMO', false, null));
+        $this->assertSame($expected, DriverCopy::clause($driver, $plural, $cuando));
     }
 
     public function testSingleCriticalComuna(): void
@@ -114,7 +122,7 @@ final class MacrozonaHeadlineTest extends TestCase
         $text = $this->headline($this->padded([$this->summary('biobio', $rows)]));
 
         $this->assertSame(
-            '5 comunas en nivel crítico: Comuna A, Comuna B y Comuna C (Biobío), por condiciones meteorológicas extremas; y 2 más.',
+            '5 comunas en nivel crítico: Comuna A, Comuna B y Comuna C (Biobío), por condiciones meteorológicas extremas, y 2 más.',
             $text,
         );
     }
@@ -129,7 +137,7 @@ final class MacrozonaHeadlineTest extends TestCase
 
         $text = $this->headline([$this->summary('nuble', $nuble), $this->summary('biobio', $biobio)]);
 
-        $this->assertSame('Ninguna comuna en nivel crítico. 21 de 24 están en nivel alto. Sin datos de La Araucanía.', $text);
+        $this->assertSame('Ninguna comuna en nivel crítico. 21 de 24 están en nivel alto. 1 comuna sin clasificar. Sin datos de La Araucanía.', $text);
     }
 
     public function testNoCriticalSingularAgreement(): void
@@ -147,7 +155,7 @@ final class MacrozonaHeadlineTest extends TestCase
             $this->summary('araucania', [self::row('2', 'ALTO')]),
         ]);
 
-        $this->assertSame('1 comuna en nivel crítico: Cañete (Biobío), por puntaje de riesgo muy alto. Sin datos de Ñuble.', $text);
+        $this->assertSame('1 comuna en nivel crítico: Cañete (Biobío), por un puntaje de riesgo muy alto. Sin datos de Ñuble.', $text);
     }
 
     public function testAllUnavailableHasNoHeadline(): void
@@ -164,5 +172,124 @@ final class MacrozonaHeadlineTest extends TestCase
         ]));
 
         $this->assertSame('1 comuna en nivel crítico: Yungay (Ñuble), por un foco de calor detectado el 24 oct.', $text);
+    }
+
+    public function testHoyUsesTheChileDayNotTheUtcDay(): void
+    {
+        // 02:30Z on the 25th is 23:30 on the 24th in Chile (UTC-3); "now" is 07:00 on the 25th there.
+        $now = gmmktime(10, 0, 0, 10, 25, 2026);
+        $summary = (new RegionSummarizer())->summarize(
+            'nuble',
+            self::risk([self::row('1', 'CRITICO', 1, 'FIRMS_TODAY', '2026-10-25T02:30:00Z', 'Yungay')]),
+            DatasetResult::none(),
+            $now,
+        );
+
+        $text = MacrozonaHeadline::compose($this->padded([$summary]), $now);
+
+        $this->assertSame('1 comuna en nivel crítico: Yungay (Ñuble), por un foco de calor detectado el 24 oct.', $text);
+    }
+
+    public function testStaleRegionIsNamedAfterTheCriticalSentence(): void
+    {
+        $old = gmdate('Y-m-d\TH:i:s\Z', self::now() - 30 * 3600);
+
+        $text = $this->headline($this->padded([
+            $this->summary('nuble', [self::row('1', 'CRITICO', 1, 'FWI', $old, 'Yungay')]),
+        ]));
+
+        $this->assertSame('1 comuna en nivel crítico: Yungay (Ñuble), por condiciones meteorológicas extremas. Datos desactualizados de Ñuble.', $text);
+    }
+
+    public function testStaleRegionsAreNamedAfterTheNoCriticalSentence(): void
+    {
+        $stale = gmdate('Y-m-d\TH:i:s\Z', self::now() - 30 * 3600);
+        $veryStale = gmdate('Y-m-d\TH:i:s\Z', self::now() - 60 * 3600);
+
+        $two = $this->headline($this->padded([
+            $this->summary('nuble', [self::row('1', 'ALTO', 0, null, $stale)]),
+            $this->summary('araucania', [self::row('2', 'ALTO', 0, null, $veryStale)]),
+        ]));
+        $three = $this->headline([
+            $this->summary('nuble', [self::row('1', 'ALTO', 0, null, $stale)]),
+            $this->summary('biobio', [self::row('2', 'ALTO', 0, null, $stale)]),
+            $this->summary('araucania', [self::row('3', 'ALTO', 0, null, $veryStale)]),
+        ]);
+
+        $this->assertSame('Ninguna comuna en nivel crítico. 3 de 3 están en nivel alto. Datos desactualizados de Ñuble y La Araucanía.', $two);
+        $this->assertSame('Ninguna comuna en nivel crítico. 3 de 3 están en nivel alto. Datos desactualizados de Ñuble, Biobío y La Araucanía.', $three);
+    }
+
+    public function testFreshRegionsAddNoStaleSentence(): void
+    {
+        $text = $this->headline($this->padded([$this->summary('nuble', [self::row('1', 'CRITICO', 1, 'FWI', name: 'Yungay')])]));
+
+        $this->assertStringNotContainsString('desactualizados', (string) $text);
+    }
+
+    public function testUnclassifiedComunasAreCounted(): void
+    {
+        $one = $this->headline($this->padded([$this->summary('nuble', [self::row('1', 'CRITICO', 1, 'FWI', name: 'Yungay'), self::row('2', 'UNKNOWN')])]));
+        $three = $this->headline($this->padded([$this->summary('nuble', [self::row('1', 'ALTO'), self::row('2', 'UNKNOWN'), self::row('3', 'UNKNOWN')]), $this->summary('biobio', [self::row('4', 'UNKNOWN')])]));
+
+        $this->assertSame('1 comuna en nivel crítico: Yungay (Ñuble), por condiciones meteorológicas extremas. 1 comuna sin clasificar.', $one);
+        $this->assertSame('Ninguna comuna en nivel crítico. 2 de 5 están en nivel alto. 3 comunas sin clasificar.', $three);
+    }
+
+    public function testAllUnclassifiedMakesNoLevelClaim(): void
+    {
+        $stale = gmdate('Y-m-d\TH:i:s\Z', self::now() - 30 * 3600);
+
+        $text = $this->headline([
+            $this->summary('nuble', [self::row('1', 'UNKNOWN', 0, null, $stale), self::row('2', 'UNKNOWN', 0, null, $stale)]),
+            $this->summary('biobio', [self::row('3', 'UNKNOWN')]),
+        ]);
+
+        $this->assertSame('Datos desactualizados de Ñuble. 3 comunas sin clasificar. Sin datos de La Araucanía.', $text);
+    }
+
+    public function testCriticalComunaWithAnUnparsableDateOmitsHoyAndTheDate(): void
+    {
+        $summary = new RegionSummary(
+            'nuble',
+            'Ñuble',
+            Freshness::Ok,
+            1,
+            0,
+            ['CRITICO' => 1, 'ALTO' => 0, 'PREVENTIVO' => 0, 'NORMAL' => 0],
+            0,
+            1,
+            [['comunaId' => '1', 'nombre' => 'Yungay', 'driverKey' => 'FIRMS_TODAY', 'computedAt' => 'garbage']],
+            ['available' => false, 'year' => null, 'totalHa' => null, 'comunasWithData' => 0, 'comunasTotal' => 0, 'citation' => null],
+            self::now(),
+            0,
+            ['risk' => 'cache', 'burned' => 'none'],
+        );
+
+        $text = MacrozonaHeadline::compose($this->padded([$summary]), self::now());
+
+        $this->assertSame('1 comuna en nivel crítico: Yungay (Ñuble), por un foco de calor detectado.', $text);
+    }
+
+    public function testComposeNeverThrows(): void
+    {
+        // A non-string driver key violates the types and raises a TypeError under strict_types.
+        $broken = new RegionSummary(
+            'nuble',
+            'Ñuble',
+            Freshness::Ok,
+            1,
+            0,
+            ['CRITICO' => 1, 'ALTO' => 0, 'PREVENTIVO' => 0, 'NORMAL' => 0],
+            0,
+            1,
+            [['comunaId' => '1', 'nombre' => 'Yungay', 'driverKey' => 5, 'computedAt' => self::NOW]],
+            ['available' => false, 'year' => null, 'totalHa' => null, 'comunasWithData' => 0, 'comunasTotal' => 0, 'citation' => null],
+            self::now(),
+            0,
+            ['risk' => 'cache', 'burned' => 'none'],
+        );
+
+        $this->assertNull(MacrozonaHeadline::compose([$broken], self::now()));
     }
 }

@@ -7,34 +7,31 @@ namespace CableATierra\Datos\Summary;
 /**
  * Plain-language copy for NoFires alert drivers. Returns null for a missing or unknown driver so
  * a raw enum value can never reach the reader.
+ *
+ * Each driver has an explicit [singular, plural] clause. `{cuando}` is the only slot: it is filled
+ * with "hoy" or "el 24 oct" (and dropped when the date is unknown); templates without it ignore it.
  */
 final class DriverCopy
 {
+    private const TEMPLATES = [
+        'FIRMS_TODAY' => ['por un foco de calor detectado{cuando}', 'por focos de calor detectados{cuando}'],
+        'FIRMS_CLUSTER' => ['por varios focos de calor en las últimas 48 h', 'por varios focos de calor en las últimas 48 h'],
+        'FIRMS_FRP' => ['por focos de calor de alta intensidad', 'por focos de calor de alta intensidad'],
+        'FWI' => ['por condiciones meteorológicas extremas', 'por condiciones meteorológicas extremas'],
+        'SCORE' => ['por un puntaje de riesgo muy alto', 'por un puntaje de riesgo muy alto'],
+    ];
+
     /**
-     * @param ?string $dateLabel e.g. "24 oct" when the data is not from today; replaces "hoy"
+     * @param ?string $cuando "hoy", "el 24 oct" or null when the date is unknown
+     * @return ?string e.g. "por un foco de calor detectado hoy"; null without a known driver
      */
-    public static function phrase(?string $driverKey, bool $plural, ?string $dateLabel): ?string
+    public static function clause(?string $driverKey, bool $plural, ?string $cuando): ?string
     {
-        $text = match ($driverKey) {
-            'FIRMS_TODAY' => $plural ? 'focos de calor detectados hoy' : 'foco de calor detectado hoy',
-            'FIRMS_CLUSTER' => 'varios focos de calor en las últimas 48 h',
-            'FIRMS_FRP' => 'focos de calor de alta intensidad',
-            'FWI' => 'condiciones meteorológicas extremas',
-            'SCORE' => 'puntaje de riesgo muy alto',
-            default => null,
-        };
-
-        return $text !== null && $dateLabel !== null ? str_replace(' hoy', ' el ' . $dateLabel, $text) : $text;
-    }
-
-    /** "por un foco de calor detectado hoy" / "por focos ..."; null without a known driver. */
-    public static function clause(?string $driverKey, bool $plural, ?string $dateLabel): ?string
-    {
-        $phrase = self::phrase($driverKey, $plural, $dateLabel);
-        if ($phrase === null) {
+        $template = $driverKey === null ? null : (self::TEMPLATES[$driverKey] ?? null);
+        if ($template === null) {
             return null;
         }
 
-        return 'por ' . ($driverKey === 'FIRMS_TODAY' && !$plural ? 'un ' : '') . $phrase;
+        return str_replace('{cuando}', $cuando === null ? '' : ' ' . $cuando, $template[$plural ? 1 : 0]);
     }
 }

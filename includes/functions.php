@@ -31,8 +31,9 @@ if (!function_exists('cat_datos_api_version')) {
 if (!function_exists('cat_datos_get_region_summary')) {
     /**
      * Summary of one region ('nuble', 'biobio' or 'araucania'). An unknown region id returns the
-     * `unavailable` shape. Serves cached or last-good data; may do at most one short blocking
-     * request when nothing usable is cached.
+     * `unavailable` shape. Serves cached or last-good data. On a cold cache the first read of a
+     * PHP request may make one short (3 s) blocking request; that budget is shared by every API
+     * call in the request, so any other dataset stays `unavailable` until cron warms it.
      *
      * @return array{
      *   region: string,

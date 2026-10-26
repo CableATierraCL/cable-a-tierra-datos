@@ -43,8 +43,17 @@ final class RegionSummarizer
         $firmsMissing = 0;
         $oldest = null;
         $critical = [];
+        $used = 0;
         foreach ($rows as $row) {
-            $level = AlertLevel::fromApi(is_string($row['alertLevel'] ?? null) ? $row['alertLevel'] : '');
+            // A row whose computedAt cannot be parsed is untrustworthy: it counts nowhere.
+            $computedAt = is_string($row['computedAt'] ?? null) ? $row['computedAt'] : '';
+            $ts = LocalTime::parseUtc($computedAt);
+            if ($ts === null) {
+                continue;
+            }
+            $used++;
+
+            $level =AlertLevel::fromApi(is_string($row['alertLevel'] ?? null) ? $row['alertLevel'] : '');
             if ($level === AlertLevel::Unknown) {
                 $unclassified++;
             } else {
@@ -58,9 +67,7 @@ final class RegionSummarizer
                 $firmsMissing++;
             }
 
-            $computedAt = is_string($row['computedAt'] ?? null) ? $row['computedAt'] : '';
-            $ts = LocalTime::parseUtc($computedAt);
-            if ($ts !== null && ($oldest === null || $ts < $oldest)) {
+            if ($oldest === null || $ts < $oldest) {
                 $oldest = $ts;
             }
 
@@ -94,7 +101,7 @@ final class RegionSummarizer
             $firmsMissing,
             $counts,
             $unclassified,
-            count($rows),
+            $used,
             $critical,
             $burnedSummary,
             $oldest,
