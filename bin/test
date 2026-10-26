@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Runs PHPUnit on the PHP version the site runs (8.2), which is authoritative.
+# `composer test` runs on composer's own PHP and is only a convenience.
+#
+# Machine-specific paths live in bin/test.env (gitignored), for example:
+#   PHP_BIN="/c/path/to/php-8.2/php.exe"
+#   PHP_INI="C:\path\to\php\conf"   # optional, exported as PHPRC
+# Without it, the `php` on PATH is used.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+PHP_BIN="php"
+PHP_INI=""
+if [[ -f bin/test.env ]]; then
+    # shellcheck source=/dev/null
+    source bin/test.env
+fi
+if [[ -n "$PHP_INI" ]]; then
+    exec env -u PHP_INI_SCAN_DIR PHPRC="$PHP_INI" "$PHP_BIN" vendor/bin/phpunit "$@"
+fi
+exec "$PHP_BIN" vendor/bin/phpunit "$@"
