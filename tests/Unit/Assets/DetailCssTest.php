@@ -115,6 +115,25 @@ final class DetailCssTest extends TestCase
         $this->assertMatchesRegularExpression('/\.cat-detail__table th\[scope="row"\]\{[^}]*position:sticky[^}]*left:0[^}]*background:var\(--cat-paper\)/', $this->css);
     }
 
+    public function test_sticky_cells_keep_their_borders_with_a_separate_border_model(): void
+    {
+        $this->assertMatchesRegularExpression('/\.cat-detail__table\{[^}]*border-collapse:separate[^}]*border-spacing:0/', $this->css);
+        $this->assertDoesNotMatchRegularExpression('/border-collapse:collapse/', $this->css);
+    }
+
+    public function test_the_corner_header_cell_is_sticky_above_the_body_cells(): void
+    {
+        $this->assertMatchesRegularExpression('/\.cat-detail__table thead th:first-child\{[^}]*position:sticky[^}]*left:0[^}]*background:var\(--cat-paper\)[^}]*z-index:2/', $this->css);
+        $this->assertMatchesRegularExpression('/th\[scope="row"\]\{[^}]*z-index:1/', $this->css);
+    }
+
+    public function test_the_sticky_column_wraps_and_is_capped_so_other_columns_stay_visible(): void
+    {
+        $this->assertMatchesRegularExpression('/th\[scope="row"\]\{[^}]*white-space:normal/', $this->css);
+        $this->assertDoesNotMatchRegularExpression('/white-space:nowrap/', $this->css);
+        $this->assertMatchesRegularExpression('/th\[scope="row"\]\{[^}]*max-width:min\(12rem,40%\)/', $this->css);
+    }
+
     public function test_the_scroll_region_shows_a_focus_ring(): void
     {
         $this->assertMatchesRegularExpression('/\.cat-detail__scroll:focus-visible\{[^}]*outline:2px solid/', $this->css);
@@ -147,7 +166,8 @@ final class DetailCssTest extends TestCase
         $this->assertNotSame('', $print, 'a @media print block is required');
         $this->assertMatchesRegularExpression('/\.cat-detail__nav\{[^}]*display:none/', $print);
         $this->assertMatchesRegularExpression('/\.cat-detail__scroll\{[^}]*overflow:visible/', $print);
-        $this->assertMatchesRegularExpression('/\.cat-detail__table th\[scope="row"\]\{[^}]*position:static/', $print);
+        $this->assertMatchesRegularExpression('/\.cat-detail__table th\[scope="row"\][^{]*\{[^}]*position:static/', $print);
+        $this->assertMatchesRegularExpression('/thead th:first-child\{[^}]*position:static/', $print);
         $this->assertMatchesRegularExpression('/\.cat-detail__sw\{[^}]*print-color-adjust:exact/', $print);
         $this->assertDoesNotMatchRegularExpression('/display:none[^}]*\}[^{]*\.cat-detail__panel/', $print, 'all panels print');
     }

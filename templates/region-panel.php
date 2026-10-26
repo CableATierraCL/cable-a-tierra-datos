@@ -7,7 +7,7 @@
 
 defined('ABSPATH') || exit;
 ?>
-<section class="cat-detail__panel" id="<?php echo esc_attr((string) $view['id']); ?>">
+<section class="cat-detail__panel" id="<?php echo esc_attr((string) $view['id']); ?>" data-region="<?php echo esc_attr((string) $view['region']); ?>">
 <h2 class="cat-detail__title"><?php echo esc_html((string) $view['name']); ?></h2>
 <?php if ($view['unavailable']) : ?>
 <p class="cat-detail__empty">Datos no disponibles por el momento</p>
@@ -18,7 +18,9 @@ defined('ABSPATH') || exit;
 <?php endif; ?>
 <p class="cat-detail__coverage"><?php echo esc_html((string) $view['coverage']); ?></p>
 <?php endif; ?>
-<?php do_action('cat_datos_detail_region_after_summary', $view['region'], $view['detail']); ?>
+<?php if ($view['extra'] !== '') : ?>
+<div class="cat-detail__extra"><?php echo $view['extra']; // Captured from the hook and passed through wp_kses_post() by the renderer. ?></div>
+<?php endif; ?>
 <?php if (!$view['unavailable']) : ?>
 <div class="cat-detail__scroll" role="region" tabindex="0" aria-labelledby="<?php echo esc_attr((string) $view['captionId']); ?>">
 <table class="cat-detail__table">

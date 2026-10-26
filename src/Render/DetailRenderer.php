@@ -64,7 +64,7 @@ final class DetailRenderer
     /** Literal markup for a panel whose template failed; same id and heading, no hook. */
     private function emptyPanel(Region $region, int $instance): string
     {
-        return '<section class="cat-detail__panel" id="' . esc_attr($this->panelId($region, $instance)) . '"><h2 class="cat-detail__title">'
+        return '<section class="cat-detail__panel" id="' . esc_attr($this->panelId($region, $instance)) . '" data-region="' . esc_attr($region->value) . '"><h2 class="cat-detail__title">'
             . esc_html($region->label()) . '</h2><p class="cat-detail__empty">' . self::UNAVAILABLE . '</p></section>';
     }
 
@@ -118,10 +118,42 @@ final class DetailRenderer
         ];
     }
 
+    /**
+     * Sandboxed stage-2 hook: a listener can lose only its own output. Its echo is captured, the buffer
+     * stack is unwound to where it started on any failure, and the result is balanced and filtered
+     * with wp_kses_post() so it cannot break or escape the panel. Empty unless a listener printed.
+     */
+    private function extra(RegionDetail $d, Region $region): string
+    {
+        $level = ob_get_level();
+        ob_start();
+        try {
+            do_action('cat_datos_detail_region_after_summary', $region->value, $d);
+            while (ob_get_level() > $level + 1) {
+                ob_end_flush();
+            }
+            $out = (string) ob_get_clean();
+        } catch (\Throwable) {
+            while (ob_get_level() > $level) {
+                ob_end_clean();
+            }
+
+            return '';
+        }
+        if (trim($out) === '') {
+            return '';
+        }
+        if (function_exists('force_balance_tags')) {
+            $out = force_balance_tags($out);
+        }
+
+        return wp_kses_post($out);
+    }
+
     /** @return array<string, mixed> */
     private function panel(RegionDetail $d, Region $region, string $id, int $instance): array
     {
-        $panel = ['detail' => $d, 'region' => $region->value, 'id' => $id, 'name' => $region->label(), 'unavailable' => true];
+        $panel = ['detail' => $d, 'region' => $region->value, 'id' => $id, 'name' => $region->label(), 'unavailable' => true, 'extra' => $this->extra($d, $region)];
         if ($d->state === Freshness::Unavailable || $d->freshnessTs === null) {
             return $panel;
         }
@@ -133,6 +165,7 @@ final class DetailRenderer
             'level' => $r['level']->label(),
             'cause' => DriverCopy::label($r['driver'], $r['level'], $r['today']) ?? '—',
             'firms' => NumberFormat::integer($r['firms']) ?? '—',
+            // Intentional: hectares() reads 0 < x < 1 as "<1 ha" rather than rounding to a false "0 ha"; only a real 0 reads "0 ha".
             'burned' => $r['burnedHa'] === null ? 'Sin dato' : (string) NumberFormat::hectares($r['burnedHa']),
         ], $d->rows);
 
@@ -140,9 +173,9 @@ final class DetailRenderer
             'unavailable' => false,
             'captionId' => 'cat-detail-cap-' . $region->value . '-' . $instance,
             'caption' => sprintf('Comunas de %s: nivel de alerta, focos y superficie quemada', $region->label()),
-            'asof' => 'Actualizado el ' . $when,
-            'banner' => $d->state === Freshness::Ok ? null : 'Datos desactualizados · Último dato: ' . $when,
-            'coverage' => sprintf('%d de %d comunas con dato', $d->withData, $d->total()),
+            'asof' => 'Actualizado el ' . $when . ' (hora de Chile)',
+            'banner' => $d->state === Freshness::Ok ? null : 'Datos desactualizados · Último dato: ' . $when . ' (hora de Chile)',
+            'coverage' => sprintf('%d de %d comunas con dato de superficie quemada', $d->withData, $d->total()),
             'firmsHeader' => $d->state === Freshness::VeryStale ? 'Focos: 48 h previas al ' . SpanishDate::day(LocalTime::at($d->freshnessTs)) : 'Focos (48 h)',
             'burnedHeader' => $d->year !== null ? 'Superficie quemada ' . $d->year : 'Superficie quemada',
             'rows' => $rows,

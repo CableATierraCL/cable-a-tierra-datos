@@ -129,7 +129,7 @@ final class DetailRendererTest extends TestCase
         foreach ([0, 1, 2] as $i) {
             $panel = $this->panel($x, $i);
             $this->assertSame(1, substr_count($panel->textContent, 'Actualizado el'));
-            $this->assertSame('Actualizado el 25 de octubre de 2026, 07:00', $this->text($x, './/p[contains(@class,"cat-detail__asof")]', $panel));
+            $this->assertSame('Actualizado el 25 de octubre de 2026, 07:00 (hora de Chile)', $this->text($x, './/p[contains(@class,"cat-detail__asof")]', $panel));
             $this->assertDoesNotMatchRegularExpression('/\d{1,2}:\d{2}/', $this->text($x, './/tbody', $panel));
         }
     }
@@ -140,7 +140,7 @@ final class DetailRendererTest extends TestCase
 
         $x = $this->xpath($this->html([$d]));
 
-        $this->assertSame('Actualizado el 24 de octubre de 2026, 22:30', $this->text($x, '//p[contains(@class,"cat-detail__asof")]'));
+        $this->assertSame('Actualizado el 24 de octubre de 2026, 22:30 (hora de Chile)', $this->text($x, '//p[contains(@class,"cat-detail__asof")]'));
     }
 
     public function test_the_coverage_line_comes_right_before_the_table(): void
@@ -149,7 +149,7 @@ final class DetailRendererTest extends TestCase
 
         $x = $this->xpath($this->html([$d]));
 
-        $this->assertSame('1 de 2 comunas con dato', $this->text($x, '//p[contains(@class,"cat-detail__coverage")]'));
+        $this->assertSame('1 de 2 comunas con dato de superficie quemada', $this->text($x, '//p[contains(@class,"cat-detail__coverage")]'));
         $this->assertSame(1, $x->query('//p[contains(@class,"cat-detail__coverage")]/following-sibling::*[1][self::div[@role="region"]]')->length);
     }
 
@@ -182,7 +182,7 @@ final class DetailRendererTest extends TestCase
 
         $x = $this->xpath($this->html([$d]));
 
-        $this->assertSame('Datos desactualizados · Último dato: 24 de octubre de 2026, 03:00', $this->text($x, '//*[@role="status"]'));
+        $this->assertSame('Datos desactualizados · Último dato: 24 de octubre de 2026, 03:00 (hora de Chile)', $this->text($x, '//*[@role="status"]'));
         $this->assertSame(1, $x->query('//table')->length, 'a stale panel still shows its table');
     }
 
@@ -243,7 +243,7 @@ final class DetailRendererTest extends TestCase
 
         $cells = array_map(static fn ($n) => trim($n->textContent), iterator_to_array($x->query('//tbody/tr/td[4]')));
         $this->assertSame(['0' . self::NBSP . 'ha', 'Sin dato', 'Sin dato'], $cells);
-        $this->assertSame('1 de 3 comunas con dato', $this->text($x, '//p[contains(@class,"cat-detail__coverage")]'));
+        $this->assertSame('1 de 3 comunas con dato de superficie quemada', $this->text($x, '//p[contains(@class,"cat-detail__coverage")]'));
     }
 
     public function test_a_burned_failure_keeps_the_table_with_every_cell_sin_dato_and_no_year(): void
@@ -256,7 +256,7 @@ final class DetailRendererTest extends TestCase
         $this->assertSame(1, $x->query('//table')->length);
         $this->assertSame('Superficie quemada', $this->text($x, '//thead/tr/th[5]'));
         $this->assertSame(['Sin dato', 'Sin dato'], array_map(static fn ($n) => trim($n->textContent), iterator_to_array($x->query('//tbody/tr/td[4]'))));
-        $this->assertSame('0 de 2 comunas con dato', $this->text($x, '//p[contains(@class,"cat-detail__coverage")]'));
+        $this->assertSame('0 de 2 comunas con dato de superficie quemada', $this->text($x, '//p[contains(@class,"cat-detail__coverage")]'));
         $this->assertStringNotContainsString('MapBiomas', $html, 'nothing burned is shown, so nothing to cite');
         $this->assertStringContainsString('Índice de riesgo, no probabilidad de incendio', $html);
         $this->assertStringContainsString(Attribution::NOFIRES_URL, $html);
@@ -387,24 +387,73 @@ final class DetailRendererTest extends TestCase
 
         $x = $this->xpath($this->html($this->three()));
 
-        $this->assertSame(3, $x->query('//p[contains(@class,"cat-detail__coverage")]/following-sibling::*[1][self::aside[@class="mine"]]/following-sibling::*[1][self::div[@role="region"]]')->length);
+        $this->assertSame(3, $x->query('//p[contains(@class,"cat-detail__coverage")]/following-sibling::*[1][self::div[@class="cat-detail__extra"]][aside[@class="mine"]]/following-sibling::*[1][self::div[@role="region"]]')->length);
     }
 
-    public function test_a_panel_that_throws_degrades_to_unavailable_without_touching_the_others(): void
+    public function test_a_throwing_listener_loses_only_its_own_output(): void
     {
         Actions\expectDone(self::HOOK)->times(3)->whenHappen(static function (string $region): void {
             if ($region === 'biobio') {
+                echo '<aside class="partial">half';
                 throw new \RuntimeException('listener exploded');
             }
+        });
+        $level = ob_get_level();
+
+        $html = $this->html($this->three());
+        $x = $this->xpath($html);
+
+        $this->assertSame($level, ob_get_level(), 'output buffers are unwound');
+        $this->assertSame(3, $x->query('//table')->length);
+        $this->assertSame(1, $x->query('(//section[contains(@class,"cat-detail__panel")])[2]//table')->length);
+        $this->assertSame(0, $x->query('//div[contains(@class,"cat-detail__extra")] | //aside')->length);
+        $this->assertStringNotContainsString('half', $html);
+    }
+
+    public function test_unbalanced_listener_html_cannot_break_the_panel_structure(): void
+    {
+        Actions\expectDone(self::HOOK)->times(3)->whenHappen(static function (): void {
+            echo '</section></div><div class="open"><p>unclosed';
         });
 
         $x = $this->xpath($this->html($this->three()));
 
-        $this->assertSame(2, $x->query('//table')->length);
-        $panel = $this->panel($x, 1);
-        $this->assertSame('biobio', $panel->attributes->getNamedItem('id')?->nodeValue);
-        $this->assertSame('Biobío', $this->text($x, './h2', $panel));
-        $this->assertSame('Datos no disponibles por el momento', $this->text($x, './/p', $panel));
+        $this->assertSame(3, $x->query('//section[contains(@class,"cat-detail__panel")]')->length);
+        foreach ([0, 1, 2] as $i) {
+            $panel = $this->panel($x, $i);
+            $this->assertSame(1, $x->query('./div[contains(@class,"cat-detail__extra")]/div[@class="open"]', $panel)->length);
+            $this->assertSame(1, $x->query('./div[@role="region"]/table', $panel)->length, 'the table stays inside its panel');
+        }
+    }
+
+    public function test_listener_scripts_are_stripped(): void
+    {
+        Actions\expectDone(self::HOOK)->times(3)->whenHappen(static function (): void {
+            echo '<p class="ok">hi</p><script>alert(1)</script>';
+        });
+
+        $html = $this->html($this->three());
+
+        $this->assertStringNotContainsString('<script', $html);
+        $this->assertStringNotContainsString('alert(1)', $html);
+        $this->assertSame(3, $this->xpath($html)->query('//div[contains(@class,"cat-detail__extra")]/p[@class="ok"]')->length);
+    }
+
+    public function test_every_panel_carries_its_region_slug_whatever_its_id(): void
+    {
+        $renderer = new DetailRenderer();
+        $renderer->render($this->three());
+        $x = $this->xpath($renderer->render($this->three()));
+
+        $this->assertSame(['nuble', 'biobio', 'araucania'], array_map(static fn ($n) => $n->nodeValue, iterator_to_array($x->query('//section[contains(@class,"cat-detail__panel")]/@data-region'))));
+        $this->assertSame('biobio-2', $this->panel($x, 1)->attributes->getNamedItem('id')?->nodeValue);
+    }
+
+    public function test_a_failed_panel_fallback_also_carries_its_region_slug(): void
+    {
+        $x = $this->xpath((new DetailRenderer())->render(['not a detail']));
+
+        $this->assertSame(['nuble', 'biobio', 'araucania'], array_map(static fn ($n) => $n->nodeValue, iterator_to_array($x->query('//section[contains(@class,"cat-detail__panel")]/@data-region'))));
     }
 
     public function test_a_throwing_renderer_input_degrades_every_panel(): void

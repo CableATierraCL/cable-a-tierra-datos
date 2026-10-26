@@ -20,6 +20,40 @@ trait DetailHtml
         Functions\when('esc_html')->alias(static fn (string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8', false));
         Functions\when('esc_attr')->alias(static fn (string $s): string => htmlspecialchars($s, ENT_QUOTES, 'UTF-8', false));
         Functions\when('esc_url')->alias(static fn (string $u): string => htmlspecialchars((string) preg_replace('/[<>"\s]/', '', $u), ENT_QUOTES, 'UTF-8', false));
+        $this->stubKses();
+    }
+
+    /**
+     * Stand-ins for wp_kses_post and force_balance_tags. Limits: kses only drops script/style blocks and
+     * the balancer only tracks non-void tags by name; real WordPress is stricter on both.
+     */
+    private function stubKses(): void
+    {
+        Functions\when('wp_kses_post')->alias(static fn (string $h): string => (string) preg_replace('~<(script|style)\b[^>]*>.*?</\1\s*>~is', '', $h));
+        Functions\when('force_balance_tags')->alias(static function (string $h): string {
+            $stack = [];
+            $out = (string) preg_replace_callback('~<(/?)([a-z][a-z0-9]*)\b[^>]*?(/?)>~', static function (array $m) use (&$stack): string {
+                if ($m[3] === '/' || in_array($m[2], ['br', 'hr', 'img', 'input', 'meta', 'link'], true)) {
+                    return $m[0];
+                }
+                if ($m[1] === '') {
+                    $stack[] = $m[2];
+
+                    return $m[0];
+                }
+                if (!in_array($m[2], $stack, true)) {
+                    return '';
+                }
+                $close = '';
+                while (($top = array_pop($stack)) !== $m[2]) {
+                    $close .= '</' . $top . '>';
+                }
+
+                return $close . $m[0];
+            }, $h);
+
+            return $out . implode('', array_map(static fn (string $t): string => '</' . $t . '>', array_reverse($stack)));
+        });
     }
 
     /** @param list<array<string, mixed>>|null $rows */
