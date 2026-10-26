@@ -30,6 +30,12 @@ final class SpanishDate
         return self::day($d) . ', ' . $d->format('H:i');
     }
 
+    /** "24 de octubre de 2026" */
+    public static function date(DateTimeImmutable $d): string
+    {
+        return $d->format('j') . ' de ' . self::LONG[(int) $d->format('n') - 1] . ' de ' . $d->format('Y');
+    }
+
     /** "24 de octubre de 2026, 09:10" */
     public static function long(DateTimeImmutable $d): string
     {

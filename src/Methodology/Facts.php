@@ -7,7 +7,9 @@ namespace CableATierra\Datos\Methodology;
 use CableATierra\Datos\Domain\AlertLevel;
 use CableATierra\Datos\Domain\Attribution;
 use CableATierra\Datos\Domain\Dataset;
+use CableATierra\Datos\Format\SpanishDate;
 use CableATierra\Datos\Summary\DriverCopy;
+use CableATierra\Datos\Summary\RegionSummarizer;
 use CableATierra\Datos\Wp\Cron;
 
 /**
@@ -30,6 +32,15 @@ final class Facts
         'prev_score' => 0.50,
     ];
 
+    /** Hotspot window NoFires uses (hours). Mirrors NoFires; the band and detail copy do not read it. */
+    public const FIRMS_WINDOW_HOURS = 48;
+
+    /**
+     * Date (Y-m-d) on which the Copernicus limitation was last confirmed with NoFires. FactsTest fails
+     * six months after it, so a maintainer re-verifies with NoFires and bumps it.
+     */
+    public const LIMITATIONS_CHECKED_ON = '2026-10-26';
+
     private const T = self::THRESHOLDS;
 
     /** @return array<string, mixed> Plain text only; escaping happens in the template. */
@@ -39,6 +50,8 @@ final class Facts
         $score = 'El puntaje de riesgo es de %s o más.';
         $risk = self::duration(Dataset::Risk->ttl());
         $burned = self::duration(Dataset::Burned->ttl());
+        $window = self::FIRMS_WINDOW_HOURS;
+        $checked = SpanishDate::date(new \DateTimeImmutable(self::LIMITATIONS_CHECKED_ON));
 
         return [
             'title' => 'Cómo se calcula',
@@ -48,8 +61,8 @@ final class Facts
                     'Hay un foco de calor detectado hoy en la comuna (según la fecha de Chile).',
                     sprintf($fwi, self::T['crit_fwi']),
                     sprintf($score, self::decimal(self::T['crit_score'])),
-                    sprintf('Hubo %d o más focos de calor en las últimas 48 horas.', self::T['crit_firms']),
-                    sprintf('La intensidad media de los focos (potencia radiativa del fuego, FRP) es de %d o más.', self::T['crit_frp']),
+                    sprintf('Hubo %d o más focos de calor en las últimas %d horas.', self::T['crit_firms'], $window),
+                    sprintf('La intensidad media de los focos (potencia radiativa del fuego, FRP) es de %d megavatios (MW) o más.', self::T['crit_frp']),
                 ]],
                 ['name' => AlertLevel::Alto->label(), 'lead' => 'No es crítico y se cumple al menos una de estas condiciones:', 'items' => [
                     sprintf($fwi, self::T['alto_fwi']),
@@ -60,28 +73,35 @@ final class Facts
                 ]],
                 ['name' => AlertLevel::Normal->label(), 'lead' => 'No se cumple ninguna de las condiciones anteriores.', 'items' => []],
             ],
-            'scoreNote' => 'El puntaje de riesgo va de 0 a 1. Combina, en partes aproximadamente iguales, la susceptibilidad estructural del territorio (según MapBiomas) y las condiciones actuales.',
+            'scoreNote' => 'El puntaje de riesgo va de 0 a 1. Combina en partes iguales qué tan propenso es el territorio a incendiarse por su vegetación e historial de incendios (según MapBiomas) y las condiciones actuales: el tiempo, los focos de calor y los reportes ciudadanos recientes en la región.',
+            'levelNote' => 'El nivel de alerta no depende solo del puntaje: algunas condiciones lo suben directamente, como un foco de calor detectado hoy, un índice meteorológico de incendios (FWI) muy alto, o varios focos de calor o focos muy intensos.',
             'driversTitle' => 'Qué significa la causa',
             'drivers' => self::drivers(),
             'driversNote' => 'La columna «Causa» solo se muestra en las comunas de nivel Crítico y Alto. En los demás niveles aparece «—».',
             'sources' => [
-                'Focos de calor: NASA FIRMS, satélite VIIRS_NOAA20_NRT. Se usan las detecciones de las últimas 48 horas, sin las de baja confianza ni las que no tienen coordenadas.',
-                'Clima: índice meteorológico de incendios (FWI), que mide qué tan favorable es el tiempo actual para que un fuego se inicie y se propague.',
+                sprintf('Focos de calor: NASA FIRMS, instrumento VIIRS del satélite NOAA-20. Se usan las detecciones de las últimas %d horas, sin las de baja confianza ni las que no tienen coordenadas.', $window),
+                'Condiciones meteorológicas: índice meteorológico de incendios (FWI), que mide qué tan favorable es el tiempo actual para que un fuego se inicie y se propague.',
+                'Reportes ciudadanos: reportes enviados en la plataforma NoFires durante los últimos 7 días. Se cuentan por región, no por comuna, así que todas las comunas de una región reciben el mismo valor.',
                 'Superficie quemada: MapBiomas Chile. Es un valor por año calendario, nunca acumulado.',
                 'Nivel de alerta y puntaje de riesgo: NoFires.',
             ],
             'cadence' => [
-                'NoFires recalcula el riesgo dos veces al día, a las 01:30 y a las 13:30 (hora UTC).',
+                'NoFires recalcula el riesgo dos veces al día.',
                 sprintf('Este sitio consulta a NoFires cada %s. Los datos de riesgo se guardan %s y los de superficie quemada %s.', self::duration(Cron::INTERVAL), $risk, $burned),
                 'Las fechas y horas que ves en las tablas están en hora de Chile.',
             ],
             'limitations' => [
                 'Es un índice de riesgo, no probabilidad de incendio: un nivel alto indica condiciones favorables, no que vaya a ocurrir un incendio.',
-                'Hoy NoFires no cuenta con los índices satelitales de vegetación y humedad (Copernicus NDVI y NDMI), así que calcula en modo STANDARD: solo con el índice meteorológico, los focos de calor y los reportes.',
+                sprintf('Al %s, NoFires no cuenta con los índices de vegetación y humedad que se obtienen desde satélite (Copernicus), así que calcula solo con el tiempo, los focos de calor y los reportes ciudadanos.', $checked),
                 'NoFires informa la hora de cálculo sin zona horaria. Asumimos que es UTC (es una inferencia, no un dato confirmado) y la mostramos en hora de Chile.',
-                'Los focos corresponden a una ventana móvil de 48 horas hasta el momento del cálculo. Son detecciones de calor desde satélite, no una cuenta de incendios: un mismo incendio puede dejar varios focos.',
+                sprintf('Los focos corresponden a una ventana móvil de %d horas hasta el momento del cálculo. Son detecciones de calor desde satélite, no una cuenta de incendios: un mismo incendio puede dejar varios focos.', $window),
                 'La superficie quemada es área afectada por fuego en el año indicado, en cualquier tipo de cobertura; no es deforestación ni pérdida de bosque. En algunas comunas puede faltar y entonces se muestra «Sin dato».',
-                'Si los datos tienen más de 24 horas, la página avisa que están desactualizados y muestra la fecha del último dato.',
+                sprintf(
+                    'Si los datos tienen más de %s, la página avisa que están desactualizados. Si tienen más de %s, los focos se muestran como «%d h previas al» día del último dato.',
+                    self::duration(RegionSummarizer::OK_MAX_AGE),
+                    self::duration(RegionSummarizer::STALE_MAX_AGE),
+                    $window,
+                ),
             ],
             'attribution' => [
                 'nofiresUrl' => Attribution::NOFIRES_URL,
@@ -111,8 +131,8 @@ final class Facts
     {
         $meanings = [
             'FIRMS_TODAY' => 'Un satélite detectó al menos un foco de calor en la comuna durante el día de hoy. En la tabla se agrega «hoy» solo cuando el dato es del día.',
-            'FIRMS_CLUSTER' => sprintf('Hubo %d o más focos de calor en las últimas 48 horas.', self::T['crit_firms']),
-            'FIRMS_FRP' => sprintf('Los focos tienen una intensidad media (potencia radiativa del fuego, FRP) de %d o más.', self::T['crit_frp']),
+            'FIRMS_CLUSTER' => sprintf('Hubo %d o más focos de calor en las últimas %d horas.', self::T['crit_firms'], self::FIRMS_WINDOW_HOURS),
+            'FIRMS_FRP' => sprintf('Los focos tienen una intensidad media (potencia radiativa del fuego, FRP) de %d megavatios (MW) o más.', self::T['crit_frp']),
             'FWI' => 'El índice meteorológico de incendios (FWI) es alto: el tiempo del momento favorece que un fuego se inicie y se propague.',
             'SCORE' => 'El nivel se debe sobre todo al puntaje de riesgo, que combina la susceptibilidad del territorio con las condiciones actuales.',
         ];

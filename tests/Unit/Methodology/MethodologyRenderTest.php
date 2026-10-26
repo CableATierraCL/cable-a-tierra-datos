@@ -62,7 +62,7 @@ final class MethodologyRenderTest extends TestCase
         $critico = $this->text($x, '.', $levels->item(0));
         $alto = $this->text($x, '.', $levels->item(1));
         $preventivo = $this->text($x, '.', $levels->item(2));
-        foreach (['índice meteorológico de incendios (FWI) es de 45 o más', 'puntaje de riesgo es de 0,85 o más', '4 o más focos', 'es de 60 o más'] as $needle) {
+        foreach (['índice meteorológico de incendios (FWI) es de 45 o más', 'puntaje de riesgo es de 0,85 o más', '4 o más focos', 'es de 60 megavatios (MW) o más'] as $needle) {
             $this->assertStringContainsString($needle, $critico);
         }
         foreach (['(FWI) es de 20 o más', 'es de 0,70 o más'] as $needle) {
@@ -100,7 +100,7 @@ final class MethodologyRenderTest extends TestCase
     {
         $text = $this->text($this->xpath($this->html()), '//section[@id="metodologia"]');
 
-        foreach (['VIIRS_NOAA20_NRT', 'MapBiomas', 'NoFires', '01:30', '13:30', 'cada 15 minutos', 'STANDARD', 'Copernicus', 'inferencia', 'ventana móvil de 48 horas', 'no es deforestación', 'no probabilidad de incendio'] as $needle) {
+        foreach (['NOAA-20', 'MapBiomas', 'NoFires', 'dos veces al día', 'cada 15 minutos', 'Copernicus', 'Reportes ciudadanos', 'inferencia', 'ventana móvil de 48 horas', 'no es deforestación', 'no probabilidad de incendio'] as $needle) {
             $this->assertStringContainsString($needle, $text);
         }
     }
@@ -135,5 +135,21 @@ final class MethodologyRenderTest extends TestCase
         }
 
         $this->assertNotSame('', $this->html());
+    }
+
+    public function test_it_never_says_clima_and_does_not_leak_clock_times(): void
+    {
+        $text = $this->text($this->xpath($this->html()), '//section[@id="metodologia"]');
+
+        $this->assertDoesNotMatchRegularExpression('/\bclima\b/iu', $text);
+        $this->assertDoesNotMatchRegularExpression('/\b\d{2}:\d{2}\b/', $text);
+        $this->assertStringNotContainsString('VIIRS_NOAA20_NRT', $text);
+    }
+
+    public function test_the_level_is_not_only_the_score_note_is_rendered(): void
+    {
+        $text = $this->text($this->xpath($this->html()), '//section[@id="metodologia"]');
+
+        $this->assertStringContainsString('no depende solo del puntaje', $text);
     }
 }

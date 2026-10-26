@@ -21,8 +21,10 @@ final class RegionSummarizer
     /** Fixed display order of classified levels. */
     public const LEVELS = ['CRITICO', 'ALTO', 'PREVENTIVO', 'NORMAL'];
 
-    private const OK_MAX_AGE = 86400;
-    private const STALE_MAX_AGE = 172800;
+    /** Oldest-data age (seconds) up to which a region is fresh; the methodology copy derives from it. */
+    public const OK_MAX_AGE = 86400;
+    /** Age (seconds) up to which data is stale rather than very stale. */
+    public const STALE_MAX_AGE = 172800;
     private const NO_BURNED = ['available' => false, 'year' => null, 'totalHa' => null, 'comunasWithData' => 0, 'comunasTotal' => 0, 'citation' => null];
 
     public function summarize(string $regionId, DatasetResult $risk, DatasetResult $burned, int $now): RegionSummary

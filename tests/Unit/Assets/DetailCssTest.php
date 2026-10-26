@@ -104,6 +104,11 @@ final class DetailCssTest extends TestCase
         $this->assertMatchesRegularExpression('/\.cat-detail\{[^}]*grid-template-columns:minmax\(0,1fr\)/', $this->css);
     }
 
+    public function test_the_citation_can_wrap_anywhere(): void
+    {
+        $this->assertMatchesRegularExpression('/\.cat-detail__cite\{[^}]*overflow-wrap:anywhere/', $this->css);
+    }
+
     public function test_numeric_columns_are_right_aligned_with_tabular_figures(): void
     {
         $this->assertMatchesRegularExpression('/\.cat-detail__num\{[^}]*text-align:right/', $this->css);

@@ -31,5 +31,5 @@
 .cat-detail__terms dd{margin:0 0 .5rem}
 .cat-detail__foot{display:grid;gap:.25rem;font-size:.8125rem;color:var(--cat-muted)}
 .cat-detail__foot p{margin:0}
-.cat-detail__cite{font-size:.75rem}
+.cat-detail__cite{font-size:.75rem;overflow-wrap:anywhere}
 @media print{.cat-detail{--cat-paper:#fff;--cat-muted:#333}.cat-detail__scroll{overflow:visible}.cat-detail__table{min-width:0}.cat-detail__table tr{break-inside:avoid}.cat-detail__table th[scope="row"],.cat-detail__table thead th:first-child{position:static}.cat-detail__sw{print-color-adjust:exact;-webkit-print-color-adjust:exact}.cat-detail__nav{display:none}}

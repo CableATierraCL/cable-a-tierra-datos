@@ -8,8 +8,9 @@
 
 defined('ABSPATH') || exit;
 ?>
-<section class="cat-detail cat-detail--method alignwide" id="metodologia" aria-labelledby="metodologia-title">
-<h2 class="cat-detail__title" id="metodologia-title"><?php echo esc_html((string) $view['title']); ?></h2>
+<?php $id = (string) ($view['id'] ?? 'metodologia'); $titleId = (string) ($view['titleId'] ?? 'metodologia-title'); ?>
+<section class="cat-detail cat-detail--method alignwide" id="<?php echo esc_attr($id); ?>" aria-labelledby="<?php echo esc_attr($titleId); ?>">
+<h2 class="cat-detail__title" id="<?php echo esc_attr($titleId); ?>"><?php echo esc_html((string) $view['title']); ?></h2>
 <p><?php echo esc_html((string) $view['intro']); ?></p>
 <ol class="cat-detail__levels">
 <?php foreach ($view['levels'] as $level) : ?>
@@ -25,6 +26,7 @@ defined('ABSPATH') || exit;
 <?php endforeach; ?>
 </ol>
 <p><?php echo esc_html((string) $view['scoreNote']); ?></p>
+<p><?php echo esc_html((string) $view['levelNote']); ?></p>
 <h3 class="cat-detail__sub"><?php echo esc_html((string) $view['driversTitle']); ?></h3>
 <dl class="cat-detail__terms">
 <?php foreach ($view['drivers'] as $driver) : ?>

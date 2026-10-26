@@ -8,6 +8,7 @@ use CableATierra\Datos\Domain\AlertLevel;
 use CableATierra\Datos\Domain\Attribution;
 use CableATierra\Datos\Methodology\Facts;
 use CableATierra\Datos\Summary\DriverCopy;
+use CableATierra\Datos\Summary\RegionSummarizer;
 use CableATierra\Datos\Wp\Cron;
 use PHPUnit\Framework\TestCase;
 
@@ -51,7 +52,7 @@ final class FactsTest extends TestCase
             'El índice meteorológico de incendios (FWI) es de 45 o más.',
             'El puntaje de riesgo es de 0,85 o más.',
             'Hubo 4 o más focos de calor en las últimas 48 horas.',
-            'La intensidad media de los focos (potencia radiativa del fuego, FRP) es de 60 o más.',
+            'La intensidad media de los focos (potencia radiativa del fuego, FRP) es de 60 megavatios (MW) o más.',
         ], $levels[0]['items']);
         $this->assertSame([
             'El índice meteorológico de incendios (FWI) es de 20 o más.',
@@ -98,7 +99,7 @@ final class FactsTest extends TestCase
     {
         $sources = implode("\n", Facts::view()['sources']);
 
-        foreach (['VIIRS_NOAA20_NRT', 'FWI', 'MapBiomas', 'NoFires', '48 horas', 'baja confianza'] as $needle) {
+        foreach (['NASA FIRMS, instrumento VIIRS del satélite NOAA-20', 'FWI', 'MapBiomas', 'NoFires', '48 horas', 'baja confianza', 'Condiciones meteorológicas: índice meteorológico de incendios (FWI)', 'Reportes ciudadanos: reportes enviados en la plataforma NoFires durante los últimos 7 días', 'todas las comunas de una región reciben el mismo valor'] as $needle) {
             $this->assertStringContainsString($needle, $sources);
         }
     }
@@ -108,8 +109,8 @@ final class FactsTest extends TestCase
         $cadence = implode("\n", Facts::view()['cadence']);
 
         $this->assertSame(900, Cron::INTERVAL);
-        $this->assertStringContainsString('01:30', $cadence);
-        $this->assertStringContainsString('13:30', $cadence);
+        $this->assertStringContainsString('NoFires recalcula el riesgo dos veces al día.', $cadence);
+        $this->assertDoesNotMatchRegularExpression('/\d{2}:\d{2}|UTC/', $cadence);
         $this->assertStringContainsString('cada 15 minutos', $cadence);
         $this->assertStringContainsString('15 minutos y los de superficie quemada 24 horas', $cadence);
     }
@@ -129,8 +130,8 @@ final class FactsTest extends TestCase
 
         foreach ([
             'no probabilidad de incendio',
-            'STANDARD',
             'Copernicus',
+            'solo con el tiempo, los focos de calor y los reportes ciudadanos',
             'UTC',
             'inferencia',
             'ventana móvil de 48 horas',
@@ -149,5 +150,75 @@ final class FactsTest extends TestCase
         $this->assertSame(Attribution::NOFIRES_URL, $attribution['nofiresUrl']);
         $this->assertSame(Attribution::MAPBIOMAS_CITATION, $attribution['mapbiomas']);
         $this->assertStringContainsString('NASA FIRMS', $attribution['firms']);
+    }
+
+    public function test_the_score_sentence_is_plain_and_says_the_split_is_equal(): void
+    {
+        $view = Facts::view();
+
+        $this->assertSame(
+            'El puntaje de riesgo va de 0 a 1. Combina en partes iguales qué tan propenso es el territorio a incendiarse por su vegetación e historial de incendios (según MapBiomas) y las condiciones actuales: el tiempo, los focos de calor y los reportes ciudadanos recientes en la región.',
+            $view['scoreNote'],
+        );
+        $this->assertStringNotContainsString('aproximadamente', $view['scoreNote']);
+        $this->assertStringNotContainsString('susceptibilidad estructural', $view['scoreNote']);
+        $this->assertStringContainsString('no depende solo del puntaje', $view['levelNote']);
+        $this->assertStringContainsString('foco de calor detectado hoy', $view['levelNote']);
+    }
+
+    public function test_the_word_clima_is_never_used(): void
+    {
+        $this->assertDoesNotMatchRegularExpression('/\bclima\b/iu', (string) json_encode(Facts::view(), JSON_UNESCAPED_UNICODE));
+    }
+
+    public function test_frp_is_given_in_megawatts_in_the_rule_and_the_glossary(): void
+    {
+        $view = Facts::view();
+
+        $this->assertSame(60, Facts::THRESHOLDS['crit_frp']);
+        $this->assertStringContainsString('es de 60 megavatios (MW) o más', $view['levels'][0]['items'][4]);
+        $this->assertStringContainsString('de 60 megavatios (MW) o más', $view['drivers'][2]['meaning']);
+    }
+
+    public function test_the_copernicus_limitation_is_plain_and_dated(): void
+    {
+        $this->assertSame('2026-10-26', Facts::LIMITATIONS_CHECKED_ON);
+        $text = implode("\n", Facts::view()['limitations']);
+
+        $this->assertStringContainsString('Al 26 de octubre de 2026, NoFires no cuenta con los índices de vegetación y humedad que se obtienen desde satélite (Copernicus), así que calcula solo con el tiempo, los focos de calor y los reportes ciudadanos.', $text);
+        $this->assertStringNotContainsString('STANDARD', $text);
+        $this->assertStringNotContainsString('NDVI', $text);
+    }
+
+    /**
+     * MAINTENANCE GUARD. Uses the real date on purpose: an injected clock would never expire, and the
+     * point is to fail once the limitation has gone unchecked for six months.
+     */
+    public function test_the_dated_limitation_expires_six_months_after_it_was_checked(): void
+    {
+        $expires = (new \DateTimeImmutable(Facts::LIMITATIONS_CHECKED_ON . ' UTC'))->modify('+6 months');
+
+        $this->assertLessThanOrEqual(
+            $expires->getTimestamp(),
+            time(),
+            'The Copernicus limitation was last verified on ' . Facts::LIMITATIONS_CHECKED_ON . '. Re-verify with NoFires whether it still applies, then bump Facts::LIMITATIONS_CHECKED_ON.',
+        );
+    }
+
+    public function test_the_staleness_thresholds_come_from_the_summarizer_constants(): void
+    {
+        $this->assertSame(86400, RegionSummarizer::OK_MAX_AGE);
+        $this->assertSame(172800, RegionSummarizer::STALE_MAX_AGE);
+        $text = implode("\n", Facts::view()['limitations']);
+
+        $this->assertStringContainsString('Si los datos tienen más de 24 horas, la página avisa que están desactualizados. Si tienen más de 48 horas, los focos se muestran como «48 h previas al» día del último dato.', $text);
+    }
+
+    public function test_the_hotspot_window_is_pinned_and_used_everywhere(): void
+    {
+        $text = (string) json_encode(Facts::view(), JSON_UNESCAPED_UNICODE);
+
+        $this->assertSame(48, Facts::FIRMS_WINDOW_HOURS);
+        $this->assertSame(4, preg_match_all('/últimas 48 horas|ventana móvil de 48 horas/u', $text));
     }
 }

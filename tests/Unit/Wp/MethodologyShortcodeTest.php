@@ -32,6 +32,7 @@ final class MethodologyShortcodeTest extends TestCase
         $this->stubEscapers();
         Functions\when('plugins_url')->justReturn('https://site.test/detail.css');
         Functions\when('wp_style_is')->justReturn(true);
+        MethodologyShortcode::resetInstances();
         $this->enqueued = [];
         Functions\when('wp_enqueue_style')->alias(function (string $handle): void {
             $this->enqueued[] = $handle;
@@ -110,7 +111,10 @@ final class MethodologyShortcodeTest extends TestCase
 
     public function test_it_is_unaffected_by_attributes(): void
     {
-        $this->assertSame($this->shortcode()->render(), $this->shortcode()->render(['x' => 'y'], 'content', 'cat_datos_metodologia'));
+        $plain = $this->shortcode()->render();
+        MethodologyShortcode::resetInstances();
+
+        $this->assertSame($plain, $this->shortcode()->render(['x' => 'y'], 'content', 'cat_datos_metodologia'));
     }
 
     public function test_a_template_failure_logs_and_still_returns_a_labelled_section(): void
@@ -150,5 +154,33 @@ final class MethodologyShortcodeTest extends TestCase
         $html = (new MethodologyShortcode($logger, Assets::detail(), new Templates(CAT_DATOS_DIR . 'nowhere')))->render();
 
         $this->assertStringContainsString('id="metodologia"', $html);
+    }
+
+    public function test_repeated_instances_get_unique_ids_that_resolve_within_their_own_section(): void
+    {
+        $sc = $this->shortcode();
+        $first = $sc->render();
+        $second = $sc->render();
+        $third = $sc->render();
+
+        $this->assertStringContainsString('id="metodologia" aria-labelledby="metodologia-title"', $first);
+        $this->assertStringContainsString('id="metodologia-title"', $first);
+        $x = $this->xpath('<div>' . $first . $second . $third . '</div>');
+        $this->assertSame(3, $x->query('//section')->length);
+        $this->assertSame(1, $x->query('//section[@id="metodologia"][@aria-labelledby="metodologia-title"]//h2[@id="metodologia-title"]')->length);
+        $this->assertSame(1, $x->query('//section[@id="metodologia-2"][@aria-labelledby="metodologia-title-2"]//h2[@id="metodologia-title-2"]')->length);
+        $this->assertSame(1, $x->query('//section[@id="metodologia-3"][@aria-labelledby="metodologia-title-3"]//h2[@id="metodologia-title-3"]')->length);
+        preg_match_all('/\bid="([^"]+)"/', $first . $second . $third, $m);
+        $this->assertSame(array_values(array_unique($m[1])), $m[1], 'ids are unique across instances');
+    }
+
+    public function test_the_fallback_section_uses_the_same_unique_ids(): void
+    {
+        $sc = $this->shortcode(new Templates(CAT_DATOS_DIR . 'tests/Fixtures/templates/nonexistent'));
+        $sc->render();
+        $html = $sc->render();
+
+        $this->assertStringContainsString('id="metodologia-2" aria-labelledby="metodologia-title-2"', $html);
+        $this->assertStringContainsString('id="metodologia-title-2"', $html);
     }
 }
