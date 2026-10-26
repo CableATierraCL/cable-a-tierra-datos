@@ -166,6 +166,12 @@ final class FactsTest extends TestCase
         $this->assertStringContainsString('foco de calor detectado hoy', $view['levelNote']);
     }
 
+    /** "Susceptibilidad" is jargon for general readers; the plain phrasing is used everywhere. */
+    public function test_no_copy_uses_the_word_susceptibilidad(): void
+    {
+        $this->assertStringNotContainsString('susceptibilidad', (string) json_encode(Facts::view(), JSON_UNESCAPED_UNICODE));
+    }
+
     public function test_the_word_clima_is_never_used(): void
     {
         $this->assertDoesNotMatchRegularExpression('/\bclima\b/iu', (string) json_encode(Facts::view(), JSON_UNESCAPED_UNICODE));

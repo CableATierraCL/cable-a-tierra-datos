@@ -134,7 +134,7 @@ final class Facts
             'FIRMS_CLUSTER' => sprintf('Hubo %d o más focos de calor en las últimas %d horas.', self::T['crit_firms'], self::FIRMS_WINDOW_HOURS),
             'FIRMS_FRP' => sprintf('Los focos tienen una intensidad media (potencia radiativa del fuego, FRP) de %d megavatios (MW) o más.', self::T['crit_frp']),
             'FWI' => 'El índice meteorológico de incendios (FWI) es alto: el tiempo del momento favorece que un fuego se inicie y se propague.',
-            'SCORE' => 'El nivel se debe sobre todo al puntaje de riesgo, que combina la susceptibilidad del territorio con las condiciones actuales.',
+            'SCORE' => 'El nivel se debe sobre todo al puntaje de riesgo, que combina qué tan propenso es el territorio a incendiarse con las condiciones actuales.',
         ];
 
         $drivers = [];
