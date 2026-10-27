@@ -755,6 +755,34 @@ final class BandRendererTest extends TestCase
         self::assertSame(0, $x->query('//article//a|//a[contains(@class,"wp-block-button__link")]')->length);
     }
 
+    /** @return array<string, array{string}> */
+    public static function hostileExploreValues(): array
+    {
+        return ['protocol relative' => ['//evil.com'], 'data scheme' => ['data:text/html,x']];
+    }
+
+    #[DataProvider('hostileExploreValues')]
+    public function test_hostile_filter_values_give_no_cta_and_no_card_links(string $value): void
+    {
+        Filters\expectApplied('cat_datos_explore_url')->andReturn($value);
+
+        $x = $this->xpath($this->gated(static fn (): string => self::DETECTED));
+
+        self::assertSame(0, $x->query('//article//a|//a[contains(@class,"wp-block-button__link")]')->length);
+    }
+
+    public function test_a_throwing_detector_is_logged_once(): void
+    {
+        $logger = new \CableATierra\Datos\Tests\Support\RecordingLogger();
+        $renderer = new BandRenderer('', static fn (): string => throw new \RuntimeException('boom'), $logger);
+
+        $x = $this->xpath($renderer->render($this->fresh(), self::now()));
+
+        self::assertSame(0, $x->query('//a[contains(@class,"wp-block-button__link")]')->length);
+        self::assertCount(1, $logger->messages);
+        self::assertStringContainsString('boom', $logger->messages[0]);
+    }
+
     // ---- fault isolation --------------------------------------------------------------------
 
     public function test_a_failing_render_returns_the_unavailable_markup(): void

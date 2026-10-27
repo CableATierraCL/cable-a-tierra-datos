@@ -2,7 +2,7 @@
 
 WordPress plugin that shows NoFires fire-risk data for Nuble, Biobio and La Araucania on the cableatierrachile.com home page. It fetches and caches the data, summarizes it per region, and renders the whole "El territorio, medido." band through one shortcode. It also exposes a small PHP API for the theme.
 
-**Status:** version 0.7.0. The home band, the region detail page and the methodology page are code-complete; the plugin stays on 0.x until the whole flow has been verified on the production site.
+**Status:** version 0.7.0. the home band, region detail and methodology shortcodes are implemented but not yet verified in production, so the plugin stays on 0.x.
 
 ## Quick path
 

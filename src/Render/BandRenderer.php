@@ -11,6 +11,8 @@ use CableATierra\Datos\Domain\Region;
 use CableATierra\Datos\Format\LocalTime;
 use CableATierra\Datos\Format\NumberFormat;
 use CableATierra\Datos\Format\SpanishDate;
+use CableATierra\Datos\Port\Logger;
+use CableATierra\Datos\Port\NullLogger;
 use CableATierra\Datos\Summary\MacrozonaHeadline;
 use CableATierra\Datos\Summary\RegionSummary;
 
@@ -44,7 +46,7 @@ final class BandRenderer
      * @param (callable(): string)|null $detectExplore Lazily gives the /datos/ page URL ('' when the page is
      *        not ready). Called at most once per render; the WP layer injects the real detector.
      */
-    public function __construct(string $templates = '', ?callable $detectExplore = null)
+    public function __construct(string $templates = '', ?callable $detectExplore = null, private readonly Logger $logger = new NullLogger())
     {
         $this->templates = new Templates($templates);
         $this->detectExplore = $detectExplore === null ? static fn (): string => '' : \Closure::fromCallable($detectExplore);
@@ -131,8 +133,13 @@ final class BandRenderer
         $detected = '';
         try {
             $detected = ($this->detectExplore)();
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
             // A broken lookup must not take the band down; the filter can still supply a URL.
+            try {
+                $this->logger->warning('band: explore page lookup failed: ' . $e::class . ': ' . $e->getMessage());
+            } catch (\Throwable) {
+                // Logging is best effort.
+            }
         }
 
         return $this->url('cat_datos_explore_url', $detected);

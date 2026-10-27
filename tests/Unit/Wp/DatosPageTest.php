@@ -92,6 +92,13 @@ final class DatosPageTest extends TestCase
         $this->assertSame('', $page->url());
     }
 
+    public function test_a_password_protected_page_does_not_open_the_gate(): void
+    {
+        Functions\when('get_page_by_path')->justReturn((object) ['ID' => 1734, 'post_status' => 'publish', 'post_password' => 'secret', 'post_content' => '[cat_datos_detalle]']);
+
+        $this->assertSame('', (new DatosPage())->url());
+    }
+
     public function test_a_non_string_permalink_gives_empty_string(): void
     {
         Functions\when('get_page_by_path')->justReturn($this->page('publish', '[cat_datos_detalle]'));

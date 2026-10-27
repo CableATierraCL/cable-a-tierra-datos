@@ -27,7 +27,7 @@ final class DatosPage
         if (!is_object($page)) {
             return '';
         }
-        if (($page->post_status ?? '') !== 'publish' || !has_shortcode((string) ($page->post_content ?? ''), DetailShortcode::TAG)) {
+        if (($page->post_status ?? '') !== 'publish' || ($page->post_password ?? '') !== '' || !has_shortcode((string) ($page->post_content ?? ''), DetailShortcode::TAG)) {
             return '';
         }
         $link = get_permalink((int) $page->ID);

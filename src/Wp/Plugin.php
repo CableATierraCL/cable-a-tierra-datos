@@ -65,12 +65,18 @@ final class Plugin
         (new Shortcode(self::repository(), new SystemClock(), self::bandRenderer(), self::logger(), new Assets()))->register();
     }
 
+    /** @internal Test hook: forgets the memoized /datos/ lookup. */
+    public static function resetDatosPage(): void
+    {
+        self::$datosPage = null;
+    }
+
     /** The band renderer, with the /datos/ page gate behind its explore CTA and region links. */
     public static function bandRenderer(): BandRenderer
     {
         self::$datosPage ??= new DatosPage();
 
-        return new BandRenderer('', [self::$datosPage, 'url']);
+        return new BandRenderer('', [self::$datosPage, 'url'], self::logger());
     }
 
     /** `init` callback. */
