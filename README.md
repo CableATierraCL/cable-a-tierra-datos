@@ -82,7 +82,10 @@ Re-activating never creates duplicate events: the hook is cleared before it is s
 ```bash
 composer install     # PHPUnit 11 and Brain Monkey (dev only)
 bin/test             # runs PHPUnit on the PHP the site runs
+bin/test-js          # runs tests/js with Node's built-in runner (Node 22+, no npm, no packages)
 ```
+
+`assets/js/tabs.js` is a plain deferred script (no build step) that upgrades the `[cat_datos_detalle]` panels into accessible region tabs; without JS the panels stay stacked. It is loaded only where that shortcode renders. Its pure helpers reach the Node tests through a `module.exports` guard that is inert in the browser.
 
 `bin/test` reads machine-specific paths from `bin/test.env` (gitignored):
 

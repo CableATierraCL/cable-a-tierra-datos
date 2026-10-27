@@ -31,6 +31,7 @@ final class Plugin
         add_action('wp_enqueue_scripts', static function (): void {
             (new Assets())->onEnqueueScripts();
             Assets::detail()->onEnqueueScripts();
+            (new TabsScript())->onEnqueueScripts();
         });
     }
 
@@ -64,7 +65,7 @@ final class Plugin
     /** `init` callback. */
     public static function registerDetailShortcode(): void
     {
-        (new DetailShortcode(self::repository(), new SystemClock(), new DetailRenderer(), self::logger(), Assets::detail()))->register();
+        (new DetailShortcode(self::repository(), new SystemClock(), new DetailRenderer(), self::logger(), Assets::detail(), new TabsScript()))->register();
     }
 
     /** `init` callback. Static content: deliberately takes no repository. */

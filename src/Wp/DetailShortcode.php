@@ -26,6 +26,7 @@ final class DetailShortcode
         private readonly DetailRenderer $renderer,
         private readonly Logger $logger,
         private readonly Assets $assets,
+        private readonly ?TabsScript $tabs = null,
     ) {
     }
 
@@ -39,6 +40,7 @@ final class DetailShortcode
     {
         try {
             $this->enqueueStyles();
+            $this->enqueueTabs();
 
             $now = $this->clock->now();
             $details = [];
@@ -71,6 +73,15 @@ final class DetailShortcode
             $this->assets->enqueue();
         } catch (\Throwable $e) {
             $this->warn('detail shortcode: stylesheet failed: ' . $e::class . ': ' . $e->getMessage());
+        }
+    }
+
+    private function enqueueTabs(): void
+    {
+        try {
+            $this->tabs?->enqueue();
+        } catch (\Throwable $e) {
+            $this->warn('detail shortcode: tabs script failed: ' . $e::class . ': ' . $e->getMessage());
         }
     }
 
