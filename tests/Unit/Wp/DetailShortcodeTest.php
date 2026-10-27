@@ -24,6 +24,7 @@ use CableATierra\Datos\Tests\Support\SummaryFixtures;
 use CableATierra\Datos\Wp\Assets;
 use CableATierra\Datos\Wp\DetailShortcode;
 use CableATierra\Datos\Wp\Plugin;
+use CableATierra\Datos\Wp\TabsScript;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
 
@@ -111,6 +112,37 @@ final class DetailShortcodeTest extends TestCase
         $this->shortcode()->render();
 
         $this->assertSame(['cat-datos-detail'], $this->enqueued);
+    }
+
+    public function test_with_a_tabs_script_it_enqueues_it_after_the_stylesheet(): void
+    {
+        $this->warmCache();
+        Functions\when('wp_script_is')->justReturn(true);
+        $scripts = [];
+        Functions\when('wp_enqueue_script')->alias(static function (string $handle) use (&$scripts): void {
+            $scripts[] = $handle;
+        });
+        $shortcode = new DetailShortcode($this->repository, $this->clock, new DetailRenderer(), $this->logger, Assets::detail(), new TabsScript());
+
+        $shortcode->render();
+
+        $this->assertSame(['cat-datos-detail'], $this->enqueued);
+        $this->assertSame(['cat-datos-tabs'], $scripts);
+    }
+
+    public function test_a_failing_tabs_script_never_blocks_the_markup(): void
+    {
+        $this->warmCache();
+        Functions\when('wp_script_is')->justReturn(true);
+        Functions\when('wp_enqueue_script')->alias(static function (): void {
+            throw new \RuntimeException('no scripts today');
+        });
+        $shortcode = new DetailShortcode($this->repository, $this->clock, new DetailRenderer(), $this->logger, Assets::detail(), new TabsScript());
+
+        $html = $shortcode->render();
+
+        $this->assertStringContainsString('<table', $html);
+        $this->assertSame(['detail shortcode: tabs script failed: RuntimeException: no scripts today'], $this->logger->messages);
     }
 
     public function test_a_cold_cache_makes_at_most_one_request_and_still_renders_three_panels(): void

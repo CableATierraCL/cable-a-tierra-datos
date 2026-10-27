@@ -164,6 +164,29 @@ final class DetailCssTest extends TestCase
         $this->assertMatchesRegularExpression('/\.cat-detail__sw\{[^}]*border:1px solid var\(--cat-ink\)/', $this->css);
     }
 
+    public function test_enhanced_tabs_hide_the_inactive_panels_despite_the_panel_display_rule(): void
+    {
+        $this->assertMatchesRegularExpression('/\.cat-detail__panel\[hidden\]\{[^}]*display:none/', $this->css);
+    }
+
+    public function test_the_selected_tab_is_marked_by_more_than_colour(): void
+    {
+        $this->assertMatchesRegularExpression('/\.cat-detail__nav \[role="tab"\]\[aria-selected="true"\]\{[^}]*font-weight:700[^}]*border-bottom-color:var\(--cat-ink\)/', $this->css);
+        $this->assertMatchesRegularExpression('/\.cat-detail__nav \[role="tab"\]\{[^}]*border-bottom:3px solid transparent/', $this->css);
+        $this->assertMatchesRegularExpression('/\.cat-detail__nav \[role="tab"\]\{[^}]*padding:\.5rem/', $this->css, 'comfortable target');
+    }
+
+    public function test_every_tab_shows_the_shared_focus_ring_and_the_tablist_wraps(): void
+    {
+        $this->assertMatchesRegularExpression('/\.cat-detail a:focus-visible[^{]*\{[^}]*outline:2px solid/', $this->css);
+        $this->assertMatchesRegularExpression('/\.cat-detail__nav\{[^}]*flex-wrap:wrap/', $this->css);
+    }
+
+    public function test_print_shows_every_panel_even_when_tabs_hid_them(): void
+    {
+        $this->assertMatchesRegularExpression('/\.cat-detail__panel\[hidden\]\{[^}]*display:grid/', $this->printBlock());
+    }
+
     public function test_print_drops_the_scroll_and_the_sticky_column_and_hides_the_nav(): void
     {
         $print = $this->printBlock();
