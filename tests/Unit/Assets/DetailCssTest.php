@@ -184,7 +184,7 @@ final class DetailCssTest extends TestCase
 
     public function test_print_shows_every_panel_even_when_tabs_hid_them(): void
     {
-        $this->assertMatchesRegularExpression('/\.cat-detail__panel\[hidden\]\{[^}]*display:block/', $this->printBlock());
+        $this->assertMatchesRegularExpression('/\.cat-detail__panel\[hidden\]\{[^}]*display:grid/', $this->printBlock());
     }
 
     public function test_print_drops_the_scroll_and_the_sticky_column_and_hides_the_nav(): void

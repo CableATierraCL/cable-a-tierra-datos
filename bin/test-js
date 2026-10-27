@@ -7,4 +7,9 @@ if ! command -v node >/dev/null 2>&1; then
     echo "bin/test-js: node is not on PATH (Node 22+ required for node --test)." >&2
     exit 1
 fi
+major="$(node -p 'process.versions.node.split(".")[0]')"
+if [ "$major" -lt 22 ]; then
+    echo "bin/test-js: Node 22+ is required (found $(node -v)); node --test globs need it." >&2
+    exit 1
+fi
 exec node --test "tests/js/**/*.test.mjs"

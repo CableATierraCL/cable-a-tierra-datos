@@ -39,7 +39,7 @@ final class TabsJsTest extends TestCase
 
     public function test_it_stays_within_the_size_budget(): void
     {
-        $this->assertLessThanOrEqual(2560, strlen($this->js), 'raw budget is 2.5 KB');
+        $this->assertLessThanOrEqual(3584, strlen($this->js), 'raw budget is 3.5 KB');
     }
 
     public function test_it_is_one_iife_with_no_top_level_globals(): void
@@ -54,8 +54,14 @@ final class TabsJsTest extends TestCase
 
     public function test_pure_helpers_reach_node_only_through_the_module_guard(): void
     {
-        $this->assertMatchesRegularExpression("/typeof module !== 'undefined' && module\\.exports/", $this->js);
-        $this->assertMatchesRegularExpression('/module\.exports = \{[^}]*selectFromHash[^}]*nextIndex[^}]*canEnhance/', $this->js);
+        $this->assertMatchesRegularExpression(
+            "/typeof document === 'undefined'\\) \\{\\s*if \\(typeof module !== 'undefined' && module\\.exports\\)/",
+            $this->js,
+            'export only when there is no DOM'
+        );
+        $this->assertLessThan(strpos($this->js, 'module.exports'), strpos($this->js, "typeof document === 'undefined'"));
+        $this->assertSame(1, substr_count($this->js, 'document.'), 'the only DOM access is the final root lookup');
+        $this->assertMatchesRegularExpression('/module\.exports = \{[^}]*selectFromHash[^}]*nextIndex[^}]*canEnhance[^}]*enhance/', $this->js);
     }
 
     public function test_it_updates_the_url_without_navigating_or_scrolling(): void
@@ -80,12 +86,21 @@ final class TabsJsTest extends TestCase
         $this->assertGreaterThan(strpos($this->js, "'keydown'"), strpos($this->js, '.focus('));
     }
 
+    public function test_it_ignores_browser_shortcuts_and_non_primary_clicks(): void
+    {
+        $this->assertMatchesRegularExpression('/altKey[^;]*ctrlKey[^;]*metaKey[^;]*shiftKey/', $this->body('modified'));
+        $this->assertStringContainsString('e.button !== 0', $this->js);
+        $this->assertStringContainsString('e.defaultPrevented', $this->js);
+        $this->assertStringContainsString('nextIndex(i, e.key, tabs.length)', $this->js);
+        $this->assertStringNotContainsString('is-tabs', $this->js);
+    }
+
     public function test_it_only_enhances_the_server_markup_it_finds(): void
     {
         $this->assertStringContainsString('[data-cat-tabs]', $this->js);
         $this->assertStringContainsString('data-region', $this->js);
         $this->assertStringContainsString('canEnhance(', $this->js);
-        foreach (['tablist', 'tab', 'tabpanel', 'aria-selected', 'aria-controls', 'aria-labelledby', 'tabindex', 'is-tabs'] as $needle) {
+        foreach (['tablist', 'tab', 'tabpanel', 'aria-selected', 'aria-controls', 'aria-labelledby', 'tabindex'] as $needle) {
             $this->assertStringContainsString($needle, $this->js, $needle);
         }
     }

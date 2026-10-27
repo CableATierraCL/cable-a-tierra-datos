@@ -21,6 +21,12 @@ test('selectFromHash falls back to biobio for anything else', () => {
   }
 });
 
+test('selectFromHash decodes percent-encoding and survives malformed input', () => {
+  assert.equal(selectFromHash('#nu%62le', REGIONS), 'nuble');
+  assert.equal(selectFromHash('#bio%62io', ['biobio']), 'biobio');
+  assert.equal(selectFromHash('#%E0%A4%A', REGIONS), 'biobio');
+});
+
 test('selectFromHash honours a custom fallback', () => {
   assert.equal(selectFromHash('#x', REGIONS, 'nuble'), 'nuble');
 });
