@@ -17,6 +17,9 @@ final class Plugin
 {
     private static ?Repository $repository = null;
 
+    /** Shared so the page lookup happens once per request. */
+    private static ?DatosPage $datosPage = null;
+
     /** Hooks only; no I/O happens until a hook fires. */
     public static function boot(): void
     {
@@ -59,7 +62,15 @@ final class Plugin
     /** `init` callback. */
     public static function registerShortcode(): void
     {
-        (new Shortcode(self::repository(), new SystemClock(), new BandRenderer(), self::logger(), new Assets()))->register();
+        (new Shortcode(self::repository(), new SystemClock(), self::bandRenderer(), self::logger(), new Assets()))->register();
+    }
+
+    /** The band renderer, with the /datos/ page gate behind its explore CTA and region links. */
+    public static function bandRenderer(): BandRenderer
+    {
+        self::$datosPage ??= new DatosPage();
+
+        return new BandRenderer('', [self::$datosPage, 'url']);
     }
 
     /** `init` callback. */

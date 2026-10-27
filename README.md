@@ -2,7 +2,7 @@
 
 WordPress plugin that shows NoFires fire-risk data for Nuble, Biobio and La Araucania on the cableatierrachile.com home page. It fetches and caches the data, summarizes it per region, and renders the whole "El territorio, medido." band through one shortcode. It also exposes a small PHP API for the theme.
 
-**Status:** version 0.6.0. Stage 1 (the band) is code-complete and stays on 0.x until it has been verified on the production site.
+**Status:** version 0.7.0. The home band, the region detail page and the methodology page are code-complete; the plugin stays on 0.x until the whole flow has been verified on the production site.
 
 ## Quick path
 
@@ -17,14 +17,16 @@ WordPress plugin that shows NoFires fire-risk data for Nuble, Biobio and La Arau
 | PHP | 8.2 or newer |
 | WordPress | 6.4 or newer |
 | Outbound HTTPS | to the NoFires API (`nofires-backend-production.up.railway.app`) |
-| JavaScript | none, the band is server-rendered |
+| JavaScript | none required. Everything is server-rendered; `assets/js/tabs.js` only upgrades the detail panels into tabs |
 
 ## What it provides
 
 | Piece | Details |
 |-------|---------|
 | Shortcode | `[cat_datos_home_band]` renders the full `<section id="datos">`. It takes no attributes (any given are ignored), never throws, and falls back to a "Datos no disponibles por el momento" band if anything fails. |
-| Stylesheet | `assets/css/band.css`, versioned by file modification time. Enqueued on the front page and by the shortcode. |
+| Shortcode | `[cat_datos_detalle]` renders the region detail tables (one panel per region: Ñuble, Biobío, La Araucanía), with tabs when JavaScript is available. Same failure rules as the band. |
+| Shortcode | `[cat_datos_metodologia]` renders the static methodology text. It reads no data and enqueues only the stylesheet. |
+| Stylesheet | `assets/css/band.css`, versioned by file modification time. Enqueued on the front page and by the shortcode. `assets/css/detail.css` serves the detail and methodology shortcodes. |
 | PHP API v1 | `cat_datos_api_version()`, `cat_datos_get_region_summary( $region )`, `cat_datos_get_comunas( $region )`. Region ids: `nuble`, `biobio`, `araucania`. |
 | Cron | `cat_datos_refresh`, every 15 minutes (custom schedule `cat_datos_15min`). |
 
@@ -37,9 +39,17 @@ Contract, return shapes and guarantees are documented next to the functions in [
 | Filter | Default | Effect |
 |--------|---------|--------|
 | `cat_datos_methodology_url` | `''` | URL of the methodology page. The "Como se calcula" link renders only when this is non-empty. |
-| `cat_datos_explore_url` | `''` (hidden) | Target of the "Explorar los datos" button. The button renders only when this is non-empty. Hidden by default until the `/datos/` page has real content. |
+| `cat_datos_explore_url` | URL of the `/datos/` page when it passes the gate, else `''` | Target of the "Explorar los datos" button and base of the region links on the band cards (`{url}#nuble`, `#biobio`, `#araucania`). Both render only when the final value is non-empty. |
 
 Only `http(s)` and relative URLs are accepted; anything else is dropped.
+
+**Explore gate.** By default the band links to the detail page only when the page with path `datos` exists, is published, and its content contains `[cat_datos_detalle]` (attributes allowed; `[cat_datos_metodologia]` alone does not count). The lookup runs once per request and only when a band renders. The filter receives that detected URL and has the last word: a non-empty value wins even when the page fails the gate, and `''` hides the button and the card links. A URL that is not `http(s)` or site-relative also hides them.
+
+### Actions
+
+| Action | Arguments | Effect |
+|--------|-----------|--------|
+| `cat_datos_detail_region_after_summary` | `string $region` (`nuble`, `biobio`, `araucania`), `RegionDetail $detail` | Fires inside each `[cat_datos_detalle]` panel, between the summary and the table, including unavailable panels. Echo markup (escape it yourself). With no listener nothing extra is rendered. |
 
 ## Caching and request budget
 
@@ -98,34 +108,32 @@ PHP_INI="C:\path\to\php\conf"   # optional, exported as PHPRC
 
 ## Theme integration (for the cable-a-tierra theme session)
 
-The plugin never edits the theme. These steps are for the theme session; do them in the theme repository.
+The plugin never edits the theme. The integration below is implemented in the theme (theme PR #1, merged 2026-10-27); this section documents it.
 
-1. In `patterns/home-data.php`, replace the band body. Primary option, no PHP needed: a Shortcode block inside the pattern markup.
-
-   ```html
-   <!-- wp:shortcode -->[cat_datos_home_band]<!-- /wp:shortcode -->
-   ```
-
-   If the plugin is deactivated, WordPress prints the raw text `[cat_datos_home_band]`. For a graceful fallback, prefer the PHP variant in `patterns/home-data.php` (patterns are PHP files), which degrades to the existing markup:
+1. `patterns/home-data.php` calls the shortcode from PHP, inside a `<!-- wp:html -->` block, and falls back to a short notice when the plugin is inactive:
 
    ```php
    <?php if ( shortcode_exists( 'cat_datos_home_band' ) ) : ?>
+   <!-- wp:html -->
    <?php echo do_shortcode( '[cat_datos_home_band]' ); ?>
+   <!-- /wp:html -->
    <?php else : ?>
-   <!-- existing fallback markup -->
+   <!-- short fallback notice -->
    <?php endif; ?>
    ```
 
-   Caveat: if the band is inserted as raw block markup into post or template content (for example by pasting the rendered HTML), the output is baked in and never refreshes. Always insert the shortcode, never its HTML.
+   Do not use a core Shortcode block inside a pattern. Block templates run `do_shortcode()` before `do_blocks()`, so a Shortcode block that lives in a pattern prints the raw `[cat_datos_home_band]` tag. Also never paste the rendered band HTML into post or template content: the output is baked in and never refreshes. Always call the shortcode.
 2. Do not wrap it in `.cat-data__inner`. The plugin outputs the whole `<section class="cat-data cat-band" id="datos">`, and that theme grid would break the layout.
-3. Delete the dead `.cat-map*` and `.cat-stat*` CSS, but first confirm the selector names in the theme (`rg "cat-map|cat-stat"`), because only those exact names are dead. Keep `.cat-data`, `.cat-kicker`, `.cat-data__title`, the buttons and the tokens: the band reuses them.
+3. Keep `.cat-data`, `.cat-kicker`, `.cat-data__title`, the buttons and the tokens in the theme: the band reuses them.
 4. Keep the `/#datos` anchor working (the plugin sets `id="datos"` on the first band of a page).
 5. Brand case: the kicker reads "NoFires" in the plugin; fix any lowercase "nofires" left in the theme.
 
-### Pending before launch
+### Handoff status
 
-- [ ] Remove the fake map from the pattern.
-- [ ] Confirm `/datos/` exists in production (local page ID 1734), or set `cat_datos_explore_url`.
+- [x] Fake map removed from the pattern.
+- [x] Hardcoded "Explorar los datos" button removed from the pattern; the plugin's gated button replaces it.
+- [x] Dead `.cat-data__inner`, `.cat-map*` and `.cat-stat*` CSS removed from the theme.
+- [x] `/datos/` exists in production with `[cat_datos_detalle]` and `[cat_datos_metodologia]`, so the explore gate is open there.
 - [ ] `/metodologia/` does not exist yet. The link is omitted until a page exists; then set `cat_datos_methodology_url`.
 - [ ] Check the stylesheet lands in `<head>` on the home page (block themes render the template before `wp_head`).
 - [ ] Check the band at 1355x635, with JavaScript off, stacked at 960px and below, and at 320px.
