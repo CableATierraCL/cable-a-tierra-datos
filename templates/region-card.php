@@ -25,7 +25,7 @@ $stat = static function (string $label, ?string $value, string $class): void {
 ?>
 <article class="cat-region" aria-labelledby="<?php echo esc_attr($regionId); ?>">
 <header class="cat-region__head">
-<h3 class="cat-region__name" id="<?php echo esc_attr($regionId); ?>"><?php echo esc_html((string) $view['name']); ?></h3>
+<h3 class="cat-region__name" id="<?php echo esc_attr($regionId); ?>"><?php if ($view['href'] !== '') : ?><a href="<?php echo esc_url((string) $view['href']); ?>"><?php echo esc_html((string) $view['name']); ?></a><?php else : ?><?php echo esc_html((string) $view['name']); ?><?php endif; ?></h3>
 <?php if ($view['unavailable']) : ?>
 </header>
 <p class="cat-region__empty">Datos no disponibles por el momento</p>

@@ -627,6 +627,162 @@ final class BandRendererTest extends TestCase
         self::assertSame('Datos desactualizados', $this->text($x, '//p[contains(@class,"cat-region__flag")]'));
     }
 
+    // ---- explore gate and card links (S-HBM-06..10) ---------------------------------------------
+
+    private const DETECTED = 'https://site.test/datos/';
+
+    /** @param callable(): string $detector */
+    private function gated(callable $detector, ?array $summaries = null): string
+    {
+        return (new BandRenderer('', $detector))->render($summaries ?? $this->fresh(), self::now());
+    }
+
+    /** @return list<string> */
+    private function cardLinks(\DOMXPath $x): array
+    {
+        $links = [];
+        foreach ($x->query('//article/header/h3/a/@href') as $href) {
+            $links[] = (string) $href->nodeValue;
+        }
+
+        return $links;
+    }
+
+    public function test_the_detected_page_feeds_the_cta_and_links_the_region_names(): void
+    {
+        $x = $this->xpath($this->gated(static fn (): string => self::DETECTED));
+
+        self::assertSame(self::DETECTED, $x->query('//a[contains(@class,"wp-block-button__link")]/@href')->item(0)?->nodeValue);
+        self::assertSame([self::DETECTED . '#nuble', self::DETECTED . '#biobio', self::DETECTED . '#araucania'], $this->cardLinks($x));
+        self::assertSame(['Ñuble', 'Biobío', 'La Araucanía'], array_map(fn ($a) => $a->textContent, iterator_to_array($x->query('//article/header/h3/a'))));
+        self::assertSame(0, $x->query('//a[@target]')->length, 'links open in the same tab');
+    }
+
+    public function test_the_detected_url_goes_through_the_filter_once_per_render(): void
+    {
+        Filters\expectApplied('cat_datos_explore_url')->once()->with(self::DETECTED)->andReturnUsing(static fn (string $v): string => $v);
+
+        $x = $this->xpath($this->gated(static fn (): string => self::DETECTED));
+
+        self::assertCount(3, $this->cardLinks($x));
+    }
+
+    public function test_the_gate_is_resolved_once_per_render_and_lazily(): void
+    {
+        $calls = 0;
+        $renderer = new BandRenderer('', static function () use (&$calls): string {
+            ++$calls;
+
+            return self::DETECTED;
+        });
+        self::assertSame(0, $calls, 'nothing runs at construction');
+
+        $renderer->render($this->fresh(), self::now());
+        self::assertSame(1, $calls);
+        $renderer->unavailable();
+        self::assertSame(2, $calls, 'one more for the next render');
+    }
+
+    public function test_a_closed_gate_hides_the_cta_and_leaves_plain_names(): void
+    {
+        $x = $this->xpath($this->gated(static fn (): string => ''));
+
+        self::assertSame(0, $x->query('//a[contains(@class,"wp-block-button__link")]')->length);
+        self::assertSame(0, $x->query('//article//a|//@href[contains(., "#nuble")]')->length);
+        self::assertSame(['Ñuble', 'Biobío', 'La Araucanía'], array_map(fn ($h) => $h->textContent, iterator_to_array($x->query('//article/header/h3'))));
+        self::assertSame(0, $x->query('//a[@href=""]')->length, 'never an empty href');
+    }
+
+    public function test_a_non_empty_filter_wins_over_a_closed_gate(): void
+    {
+        Filters\expectApplied('cat_datos_explore_url')->andReturn('https://site.test/otra/');
+
+        $x = $this->xpath($this->gated(static fn (): string => ''));
+
+        self::assertSame('https://site.test/otra/', $x->query('//a[contains(@class,"wp-block-button__link")]/@href')->item(0)?->nodeValue);
+        self::assertSame('https://site.test/otra/#nuble', $this->cardLinks($x)[0]);
+    }
+
+    public function test_an_empty_filter_hides_the_cta_and_links_even_when_the_page_exists(): void
+    {
+        Filters\expectApplied('cat_datos_explore_url')->andReturn('');
+
+        $x = $this->xpath($this->gated(static fn (): string => self::DETECTED));
+
+        self::assertSame(0, $x->query('//a[contains(@class,"wp-block-button__link")]')->length);
+        self::assertSame([], $this->cardLinks($x));
+    }
+
+    public function test_a_javascript_filter_value_yields_no_links_at_all(): void
+    {
+        Filters\expectApplied('cat_datos_explore_url')->andReturn('javascript:alert(1)');
+
+        $html = $this->gated(static fn (): string => self::DETECTED);
+
+        self::assertStringNotContainsString('javascript', $html);
+        self::assertSame(0, $this->xpath($html)->query('//article//a|//a[contains(@class,"wp-block-button__link")]')->length);
+    }
+
+    public function test_an_existing_fragment_is_replaced_not_appended(): void
+    {
+        $x = $this->xpath($this->gated(static fn (): string => 'https://site.test/datos/?v=1#metodologia'));
+
+        self::assertSame(['https://site.test/datos/?v=1#nuble', 'https://site.test/datos/?v=1#biobio', 'https://site.test/datos/?v=1#araucania'], $this->cardLinks($x));
+    }
+
+    public function test_site_relative_urls_link_the_regions_too(): void
+    {
+        $x = $this->xpath($this->gated(static fn (): string => '/datos/'));
+
+        self::assertSame('/datos/#biobio', $this->cardLinks($x)[1]);
+    }
+
+    public function test_unavailable_cards_keep_their_link_and_the_empty_view_uses_the_gate(): void
+    {
+        $x = $this->xpath($this->gated(static fn (): string => self::DETECTED, [$this->region('nuble', []), $this->region('biobio'), $this->region('araucania')]));
+        self::assertCount(3, $this->cardLinks($x));
+
+        $renderer = new BandRenderer('', static fn (): string => self::DETECTED);
+        $x = $this->xpath($renderer->unavailable());
+        self::assertSame(self::DETECTED, $x->query('//a[contains(@class,"wp-block-button__link")]/@href')->item(0)?->nodeValue);
+    }
+
+    public function test_a_throwing_detector_closes_the_gate_instead_of_breaking_the_band(): void
+    {
+        $x = $this->xpath($this->gated(static fn (): string => throw new \RuntimeException('boom')));
+
+        self::assertSame(3, $x->query('//article')->length);
+        self::assertSame(0, $x->query('//article//a|//a[contains(@class,"wp-block-button__link")]')->length);
+    }
+
+    /** @return array<string, array{string}> */
+    public static function hostileExploreValues(): array
+    {
+        return ['protocol relative' => ['//evil.com'], 'data scheme' => ['data:text/html,x']];
+    }
+
+    #[DataProvider('hostileExploreValues')]
+    public function test_hostile_filter_values_give_no_cta_and_no_card_links(string $value): void
+    {
+        Filters\expectApplied('cat_datos_explore_url')->andReturn($value);
+
+        $x = $this->xpath($this->gated(static fn (): string => self::DETECTED));
+
+        self::assertSame(0, $x->query('//article//a|//a[contains(@class,"wp-block-button__link")]')->length);
+    }
+
+    public function test_a_throwing_detector_is_logged_once(): void
+    {
+        $logger = new \CableATierra\Datos\Tests\Support\RecordingLogger();
+        $renderer = new BandRenderer('', static fn (): string => throw new \RuntimeException('boom'), $logger);
+
+        $x = $this->xpath($renderer->render($this->fresh(), self::now()));
+
+        self::assertSame(0, $x->query('//a[contains(@class,"wp-block-button__link")]')->length);
+        self::assertCount(1, $logger->messages);
+        self::assertStringContainsString('boom', $logger->messages[0]);
+    }
+
     // ---- fault isolation --------------------------------------------------------------------
 
     public function test_a_failing_render_returns_the_unavailable_markup(): void

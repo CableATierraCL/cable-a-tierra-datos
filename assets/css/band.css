@@ -9,6 +9,7 @@
 .cat-region{display:flex;flex-direction:column;gap:1rem;min-width:0;padding-top:.875rem;border-top:1px solid #3C554B}
 .cat-region__head{display:flex;flex-wrap:wrap;align-items:baseline;gap:.25rem .75rem}
 .cat-region__name{margin:0;font:600 1.25rem/1.2 var(--cat-display)}
+.cat-region__name a{color:inherit;text-underline-offset:.15em}
 .cat-region__flag{margin:0;padding:.125rem .5rem;border:1px solid var(--cat-level-alto);color:var(--cat-level-alto);font-size:.8125rem;line-height:1.4}
 .cat-region__asof{flex-basis:100%;margin:0;font-size:.8125rem;color:var(--cat-note)}
 .cat-region__empty{margin:0;color:var(--cat-label)}

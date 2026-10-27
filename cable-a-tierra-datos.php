@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Cable a Tierra Datos
  * Description:       Home page data band with NoFires fire-risk summaries for the Nuble, Biobio and La Araucania regions.
- * Version:           0.6.0
+ * Version:           0.7.0
  * Requires PHP:      8.2
  * Requires at least: 6.4
  * Author:            Cable a Tierra
@@ -17,7 +17,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-define('CAT_DATOS_VERSION', '0.6.0');
+define('CAT_DATOS_VERSION', '0.7.0');
 define('CAT_DATOS_FILE', __FILE__);
 define('CAT_DATOS_DIR', __DIR__ . '/');
 

@@ -11,6 +11,8 @@ use CableATierra\Datos\Domain\Region;
 use CableATierra\Datos\Format\LocalTime;
 use CableATierra\Datos\Format\NumberFormat;
 use CableATierra\Datos\Format\SpanishDate;
+use CableATierra\Datos\Port\Logger;
+use CableATierra\Datos\Port\NullLogger;
 use CableATierra\Datos\Summary\MacrozonaHeadline;
 use CableATierra\Datos\Summary\RegionSummary;
 
@@ -37,9 +39,17 @@ final class BandRenderer
         self::$renders = 0;
     }
 
-    public function __construct(string $templates = '')
+    /** @var \Closure(): string */
+    private \Closure $detectExplore;
+
+    /**
+     * @param (callable(): string)|null $detectExplore Lazily gives the /datos/ page URL ('' when the page is
+     *        not ready). Called at most once per render; the WP layer injects the real detector.
+     */
+    public function __construct(string $templates = '', ?callable $detectExplore = null, private readonly Logger $logger = new NullLogger())
     {
         $this->templates = new Templates($templates);
+        $this->detectExplore = $detectExplore === null ? static fn (): string => '' : \Closure::fromCallable($detectExplore);
     }
 
     /** @param list<RegionSummary> $summaries In any order; missing regions count as unavailable. */
@@ -94,7 +104,8 @@ final class BandRenderer
         if ($live === []) {
             return $this->emptyView($instance);
         }
-        $cards = array_map(fn (RegionSummary $s): array => $this->card($s, $instance), $ordered);
+        $ctaUrl = $this->exploreUrl();
+        $cards = array_map(fn (RegionSummary $s): array => $this->card($s, $instance, $ctaUrl), $ordered);
 
         return [
             'uid' => $instance,
@@ -102,8 +113,7 @@ final class BandRenderer
             'headline' => MacrozonaHeadline::compose($ordered, $now),
             'cards' => $cards,
             'methodologyUrl' => $this->url('cat_datos_methodology_url', ''),
-            // Hidden until the /datos/ page has real content; enable via the filter.
-            'ctaUrl' => $this->url('cat_datos_explore_url', ''),
+            'ctaUrl' => $ctaUrl,
             'footer' => $this->footer($live, $this->shownBurnedCitations($ordered, $cards)),
         ];
     }
@@ -111,13 +121,35 @@ final class BandRenderer
     /** @return array<string, mixed> */
     private function emptyView(int $instance): array
     {
-        return ['uid' => $instance, 'anchor' => $instance === 1, 'headline' => null, 'cards' => [], 'methodologyUrl' => '', 'ctaUrl' => $this->url('cat_datos_explore_url', ''), 'footer' => null];
+        return ['uid' => $instance, 'anchor' => $instance === 1, 'headline' => null, 'cards' => [], 'methodologyUrl' => '', 'ctaUrl' => $this->exploreUrl(), 'footer' => null];
+    }
+
+    /**
+     * The CTA target and base for the card links: the detected /datos/ page, overridable through the filter.
+     * Detection runs here, once per render, and any failure just closes the gate.
+     */
+    private function exploreUrl(): string
+    {
+        $detected = '';
+        try {
+            $detected = ($this->detectExplore)();
+        } catch (\Throwable $e) {
+            // A broken lookup must not take the band down; the filter can still supply a URL.
+            try {
+                $this->logger->warning('band: explore page lookup failed: ' . $e::class . ': ' . $e->getMessage());
+            } catch (\Throwable) {
+                // Logging is best effort.
+            }
+        }
+
+        return $this->url('cat_datos_explore_url', $detected);
     }
 
     /** @return array<string, mixed> */
-    private function card(RegionSummary $s, int $instance): array
+    private function card(RegionSummary $s, int $instance, string $exploreUrl): array
     {
-        $card = ['uid' => $instance, 'slug' => $s->region, 'name' => $s->label, 'unavailable' => $s->state === Freshness::Unavailable];
+        $href = $exploreUrl === '' ? '' : explode('#', $exploreUrl, 2)[0] . '#' . $s->region;
+        $card = ['uid' => $instance, 'slug' => $s->region, 'name' => $s->label, 'href' => $href, 'unavailable' => $s->state === Freshness::Unavailable];
         if ($card['unavailable'] || $s->freshnessTs === null) {
             return ['unavailable' => true] + $card;
         }

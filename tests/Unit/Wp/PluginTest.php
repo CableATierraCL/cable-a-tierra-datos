@@ -27,10 +27,12 @@ final class PluginTest extends TestCase
     {
         parent::setUp();
         Monkey\setUp();
+        Plugin::resetDatosPage();
     }
 
     protected function tearDown(): void
     {
+        Plugin::resetDatosPage();
         Monkey\tearDown();
         parent::tearDown();
     }
@@ -159,6 +161,32 @@ final class PluginTest extends TestCase
         Functions\expect('add_shortcode')->once()->with('cat_datos_home_band', \Mockery::type('callable'));
 
         Plugin::registerShortcode();
+    }
+
+    public function test_the_band_renderer_is_wired_to_the_datos_page_gate(): void
+    {
+        Functions\expect('get_page_by_path')->once()->andReturn((object) ['ID' => 1734, 'post_status' => 'publish', 'post_content' => '[cat_datos_detalle]']);
+        Functions\when('has_shortcode')->justReturn(true);
+        Functions\when('get_permalink')->justReturn('https://site.test/datos/');
+        foreach (['esc_url_raw', 'esc_url', 'esc_html', 'esc_attr'] as $escaper) {
+            Functions\when($escaper)->returnArg();
+        }
+
+        $html = Plugin::bandRenderer()->unavailable();
+
+        $this->assertStringContainsString('href="https://site.test/datos/"', $html);
+    }
+
+    public function test_reset_datos_page_forgets_the_memoized_lookup(): void
+    {
+        Functions\expect('get_page_by_path')->twice()->andReturn(null);
+        foreach (['esc_url_raw', 'esc_url', 'esc_html', 'esc_attr'] as $escaper) {
+            Functions\when($escaper)->returnArg();
+        }
+
+        Plugin::bandRenderer()->unavailable();
+        Plugin::resetDatosPage();
+        Plugin::bandRenderer()->unavailable();
     }
 
     public function test_lifecycle_hooks_use_the_given_plugin_file(): void
