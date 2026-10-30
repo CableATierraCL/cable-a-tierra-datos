@@ -80,7 +80,7 @@ final class Facts
             'driversNote' => 'La columna «Causa» solo se muestra en las comunas de nivel Crítico y Alto. En los demás niveles aparece «—».',
             'sources' => [
                 sprintf('Focos de calor: NASA FIRMS, instrumento VIIRS del satélite NOAA-20. Se usan las detecciones de las últimas %d horas, sin las de baja confianza ni las que no tienen coordenadas.', $window),
-                'Condiciones meteorológicas: índice meteorológico de incendios (FWI), que mide qué tan favorable es el tiempo actual para que un fuego se inicie y se propague.',
+                'Condiciones meteorológicas: índice meteorológico de incendios (FWI, aproximación simplificada), que mide qué tan favorable es el tiempo actual para que un fuego se inicie y se propague.',
                 'Reportes ciudadanos: reportes enviados en la plataforma NoFires durante los últimos 7 días. Se cuentan por región, no por comuna, así que todas las comunas de una región reciben el mismo valor.',
                 'Superficie quemada: MapBiomas Chile. Es un valor por año calendario, nunca acumulado.',
                 'Nivel de alerta y puntaje de riesgo: NoFires.',
@@ -92,6 +92,7 @@ final class Facts
             ],
             'limitations' => [
                 'Es un índice de riesgo, no probabilidad de incendio: un nivel alto indica condiciones favorables, no que vaya a ocurrir un incendio.',
+                'El FWI que usa NoFires es una aproximación simplificada, no el cálculo oficial del sistema canadiense.',
                 sprintf('Al %s, NoFires no cuenta con los índices de vegetación y humedad que se obtienen desde satélite (Copernicus), así que calcula solo con el tiempo, los focos de calor y los reportes ciudadanos.', $checked),
                 'NoFires informa la hora de cálculo sin zona horaria. Asumimos que es UTC (es una inferencia, no un dato confirmado) y la mostramos en hora de Chile.',
                 sprintf('Los focos corresponden a una ventana móvil de %d horas hasta el momento del cálculo. Son detecciones de calor desde satélite, no una cuenta de incendios: un mismo incendio puede dejar varios focos.', $window),

@@ -99,7 +99,7 @@ final class FactsTest extends TestCase
     {
         $sources = implode("\n", Facts::view()['sources']);
 
-        foreach (['NASA FIRMS, instrumento VIIRS del satélite NOAA-20', 'FWI', 'MapBiomas', 'NoFires', '48 horas', 'baja confianza', 'Condiciones meteorológicas: índice meteorológico de incendios (FWI)', 'Reportes ciudadanos: reportes enviados en la plataforma NoFires durante los últimos 7 días', 'todas las comunas de una región reciben el mismo valor'] as $needle) {
+        foreach (['NASA FIRMS, instrumento VIIRS del satélite NOAA-20', 'FWI', 'MapBiomas', 'NoFires', '48 horas', 'baja confianza', 'Condiciones meteorológicas: índice meteorológico de incendios (FWI, aproximación simplificada)', 'Reportes ciudadanos: reportes enviados en la plataforma NoFires durante los últimos 7 días', 'todas las comunas de una región reciben el mismo valor'] as $needle) {
             $this->assertStringContainsString($needle, $sources);
         }
     }
@@ -130,6 +130,7 @@ final class FactsTest extends TestCase
 
         foreach ([
             'no probabilidad de incendio',
+            'El FWI que usa NoFires es una aproximación simplificada, no el cálculo oficial del sistema canadiense.',
             'Copernicus',
             'solo con el tiempo, los focos de calor y los reportes ciudadanos',
             'UTC',
